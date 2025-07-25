@@ -92,6 +92,9 @@ Create a detailed recipe using these ingredients. Format your response EXACTLY a
 - Suggest 1-2 creative variations of the recipe
 - Different flavor profiles or dietary modifications
 
+## Nutritional information:
+Calories, Protein (g), Carbs (g), Fat (g), Sugar (g), Fiber (g), Sodium (mg). Use this format:\n\n| Nutrient | Amount |\n|----------|--------|\n| Calories | 450 |\n| Protein | 25g |\n| Carbs | 35g |\n| Fat | 20g |\n| Sugar | 8g |\n| Fiber | 5g |\n| Sodium | 650mg |
+
 Make it comprehensive but approachable. Use emojis and make it visually appealing!`;
 
     const aiMessage = {
@@ -762,6 +765,45 @@ const markdownStyles = {
     backgroundColor: 'rgba(255, 107, 107, 0.15)',
     paddingVertical: 12,
     borderRadius: 8,
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: '#4ECDC4',
+    borderRadius: 8,
+    marginVertical: 12,
+    backgroundColor: 'rgba(78, 205, 196, 0.1)',
+  },
+  thead: {
+    backgroundColor: 'rgba(78, 205, 196, 0.3)',
+  },
+  tbody: {
+    backgroundColor: 'transparent',
+  },
+  th: {
+    padding: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: '#4ECDC4',
+    backgroundColor: 'rgba(78, 205, 196, 0.2)',
+  },
+  tr: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(78, 205, 196, 0.3)',
+  },
+  td: {
+    padding: 12,
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(78, 205, 196, 0.2)',
+  },
+  table_cell_header: {
+    fontWeight: '700',
+    color: '#4ECDC4',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  table_cell: {
+    color: '#ECF0F1',
+    fontSize: 15,
+    textAlign: 'center',
   },
 };
 
