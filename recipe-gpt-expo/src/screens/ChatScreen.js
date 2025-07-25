@@ -33,9 +33,9 @@ const ChatScreen = ({route, navigation}) => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Initial message with ingredients and automatic recipe suggestion
+    // Initial message with ingredients and automatic recipe suggestion  
     const ingredientList = ingredients
-      .map(ing => `• ${ing.quantity} ${ing.unit} ${ing.name}`)
+      .map(ing => `- ${ing.quantity} ${ing.unit} ${ing.name}`)
       .join('\n');
     
     const initialMessage = {

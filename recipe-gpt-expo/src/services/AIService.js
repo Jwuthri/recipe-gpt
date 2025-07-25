@@ -52,8 +52,8 @@ class AIService {
       
       // Create prompt based on number of images
       const promptText = imageUris.length === 1 
-        ? 'Analyze this image of a fridge/pantry and list all visible food ingredients with their estimated quantities. Format the response as a JSON array where each item has "name", "quantity", and "unit" properties. Be specific about quantities (e.g., "2 eggs", "500g chicken", "1 liter milk"). Only include actual food ingredients, not containers or non-food items. Return ONLY the JSON array, no additional text.'
-        : `Analyze these ${imageUris.length} images of a fridge/pantry and list all visible food ingredients with their estimated quantities from ALL images. Combine ingredients from all images into a single list. Format the response as a JSON array where each item has "name", "quantity", and "unit" properties. Be specific about quantities (e.g., "2 eggs", "500g chicken", "1 liter milk"). Only include actual food ingredients, not containers or non-food items. If the same ingredient appears in multiple images, combine the quantities. Return ONLY the JSON array, no additional text.`;
+        ? 'Analyze this image of a fridge/pantry and list all visible food ingredients with their estimated quantities. Format the response as a JSON array where each item has "name", "unit", and "quantity" properties. The "name" should be the ingredient name, "unit" should be the unit of measurement (g, kg, ml, l, pieces, etc.), and "quantity" should be the quantity/amount. Be specific about quantities (e.g., {"name": "eggs", "unit": "pieces", "quantity": "2"}). Only include actual food ingredients, not containers or non-food items. Return ONLY the JSON array, no additional text.'
+        : `Analyze these ${imageUris.length} images of a fridge/pantry and list all visible food ingredients with their estimated quantities from ALL images. Combine ingredients from all images into a single list. Format the response as a JSON array where each item has "name", "unit", and "quantity" properties. The "name" should be the ingredient name, "unit" should be the unit of measurement (g, kg, ml, l, pieces, etc.), and "quantity" should be the quantity/amount. Be specific about quantities (e.g., {"name": "eggs", "unit": "pieces", "quantity": "2"}). Only include actual food ingredients, not containers or non-food items. If the same ingredient appears in multiple images, combine the quantities. Return ONLY the JSON array, no additional text.`;
       
       // Build parts array with text prompt first, then all images
       const parts = [
@@ -393,6 +393,62 @@ class AIService {
     }
   }
 
+  parseIngredientsFromMarkdown(text) {
+    // Parse ingredients from markdown list format
+    const lines = text.split('\n');
+    const ingredients = [];
+    
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      // Look for markdown list items (starting with - or *)
+      if (trimmed && (trimmed.startsWith('-') || trimmed.startsWith('*'))) {
+        // Remove the list marker and trim
+        const content = trimmed.substring(1).trim();
+        
+        // Try to parse quantity, unit, and name
+        // Pattern: "2 eggs" or "500g chicken breast" or "1 liter milk"
+        const match = content.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]*)\s+(.+)$/);
+        
+        if (match) {
+          const [, quantity, unit, name] = match;
+          ingredients.push({
+            name: name.trim(),
+            unit: unit || 'units',
+            quantity: quantity,
+          });
+        } else {
+          // Fallback: try to split by first space to get quantity and rest
+          const parts = content.split(' ');
+          if (parts.length >= 2) {
+            const firstPart = parts[0];
+            const rest = parts.slice(1).join(' ');
+            
+            // Check if first part contains quantity and unit
+            const quantityMatch = firstPart.match(/^(\d+(?:\.\d+)?)([a-zA-Z]*)$/);
+            if (quantityMatch) {
+              ingredients.push({
+                name: rest,
+                unit: quantityMatch[2] || 'units',
+                quantity: quantityMatch[1],
+              });
+            } else {
+              // No clear quantity pattern, treat as simple item
+              ingredients.push({
+                name: content,
+                unit: 'unit',
+                quantity: '1',
+              });
+            }
+          }
+        }
+      }
+    });
+    
+    return ingredients.length > 0 ? ingredients : [
+      { name: 'No ingredients detected', unit: 'units', quantity: '0' }
+    ];
+  }
+
   parseIngredientsFromText(text) {
     // Fallback method to parse ingredients from text response
     const lines = text.split('\n');
@@ -406,8 +462,8 @@ class AIService {
         if (match) {
           ingredients.push({
             name: match[1].trim(),
-            quantity: match[2],
             unit: match[3],
+            quantity: match[2],
           });
         } else {
           // Basic fallback
@@ -415,8 +471,8 @@ class AIService {
           if (parts.length >= 2) {
             ingredients.push({
               name: parts.slice(0, -2).join(' '),
-              quantity: parts[parts.length - 2] || '1',
               unit: parts[parts.length - 1] || 'unit',
+              quantity: parts[parts.length - 2] || '1',
             });
           }
         }
@@ -424,7 +480,7 @@ class AIService {
     });
     
     return ingredients.length > 0 ? ingredients : [
-      { name: 'No ingredients detected', quantity: '0', unit: 'units' }
+      { name: 'No ingredients detected', unit: 'units', quantity: '0' }
     ];
   }
 }
