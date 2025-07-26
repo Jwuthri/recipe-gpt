@@ -9,6 +9,7 @@ import '../blocs/chat/chat_cubit.dart';
 import '../blocs/chat/chat_state.dart';
 import '../widgets/gradient_container.dart';
 import '../widgets/loading_overlay.dart';
+import '../routes/app_router.dart';
 
 /// Screen for AI chat conversations
 class ChatScreen extends StatefulWidget {
@@ -85,7 +86,7 @@ class _ChatScreenState extends State<ChatScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+                          onPressed: () => context.goToCamera(),
         ),
         actions: [
           IconButton(

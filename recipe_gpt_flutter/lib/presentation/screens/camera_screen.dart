@@ -122,7 +122,7 @@ class _CameraScreenState extends State<CameraScreen>
                     icon: Icons.camera_alt,
                     label: 'Camera',
                     onTap: () {
-                      Navigator.pop(context);
+                      Navigator.of(context).pop();
                       _pickImage(ImageSource.camera);
                     },
                   ),
@@ -130,7 +130,7 @@ class _CameraScreenState extends State<CameraScreen>
                     icon: Icons.photo_library,
                     label: 'Gallery',
                     onTap: () {
-                      Navigator.pop(context);
+                      Navigator.of(context).pop();
                       _pickImage(ImageSource.gallery);
                     },
                   ),
@@ -154,7 +154,7 @@ class _CameraScreenState extends State<CameraScreen>
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+                            onPressed: () => context.goToCamera(),
             child: const Text('OK'),
           ),
         ],

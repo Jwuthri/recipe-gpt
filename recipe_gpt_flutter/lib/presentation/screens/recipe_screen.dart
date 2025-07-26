@@ -89,12 +89,12 @@ class _RecipeScreenState extends State<RecipeScreen>
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+                          onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
+                              Navigator.of(context).pop();
               _generateRecipe();
             },
             child: const Text('Yes'),
@@ -169,7 +169,7 @@ class _RecipeScreenState extends State<RecipeScreen>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => context.goBack(),
+            onTap: () => context.goToIngredients(widget.ingredients),
             child: Container(
               width: 44,
               height: 44,

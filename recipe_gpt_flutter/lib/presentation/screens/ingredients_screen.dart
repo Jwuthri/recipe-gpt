@@ -158,7 +158,7 @@ class _IngredientsScreenState extends State<IngredientsScreen>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => context.goBack(),
+            onTap: () => context.goToCamera(),
             child: Container(
               width: 44,
               height: 44,
@@ -352,40 +352,37 @@ class _IngredientsScreenState extends State<IngredientsScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFF6B6B), Color(0xFFFF8E8E)],
-                    ),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: const Icon(
-                    Icons.restaurant,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFF6B6B), Color(0xFFFF8E8E)],
                 ),
-                const SizedBox(width: AppConstants.smallPadding),
-                Text(
-                  'Choose Recipe Style',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: const Icon(
+                Icons.restaurant,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Choose Recipe Style',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
-              ],
+              ),
             ),
             if (_selectedStyle != null)
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: AppConstants.defaultPadding,
-                  vertical: AppConstants.smallPadding,
+                  horizontal: 8,
+                  vertical: 4,
                 ),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -457,35 +454,43 @@ class _IngredientsScreenState extends State<IngredientsScreen>
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       style.icon,
                       style: TextStyle(
-                        fontSize: isSelected ? 32 : 28,
+                        fontSize: isSelected ? 28 : 24,
                       ),
                     ),
-                    const SizedBox(height: AppConstants.smallPadding),
-                    Text(
-                      style.title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: isSelected 
-                            ? const Color(0xFF4ECDC4)
-                            : Colors.white,
+                    const SizedBox(height: 6),
+                    Flexible(
+                      child: Text(
+                        style.title,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: isSelected 
+                              ? const Color(0xFF4ECDC4)
+                              : Colors.white,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      style.description,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isSelected 
-                            ? Colors.white.withOpacity(0.9)
-                            : Colors.white70,
+                    const SizedBox(height: 2),
+                    Flexible(
+                      child: Text(
+                        style.description,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: isSelected 
+                              ? Colors.white.withOpacity(0.9)
+                              : Colors.white70,
+                          fontSize: 11,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
                     if (isSelected) ...[
                       const SizedBox(height: AppConstants.smallPadding),
