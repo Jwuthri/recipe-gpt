@@ -49,7 +49,7 @@ class _RecipeScreenState extends State<RecipeScreen>
     );
 
     _typewriterController = AnimationController(
-      duration: const Duration(milliseconds: 100),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
 
@@ -62,6 +62,9 @@ class _RecipeScreenState extends State<RecipeScreen>
     ));
 
     _fadeController.forward();
+    
+    // Start typewriter animation
+    _typewriterController.repeat();
   }
 
   @override
@@ -125,6 +128,11 @@ class _RecipeScreenState extends State<RecipeScreen>
                 backgroundColor: Theme.of(context).colorScheme.error,
               ),
             );
+          } else if (state is RecipeStreaming) {
+            print('[UI] RecipeStreaming state received, content length: ${state.content.length}');
+          } else if (state is RecipeSuccess) {
+            // Stop typewriter animation when streaming is complete
+            _typewriterController.stop();
           }
         },
         builder: (context, state) {
@@ -295,6 +303,19 @@ class _RecipeScreenState extends State<RecipeScreen>
   }
 
   Widget _buildStreamingContent(String content, bool isStreaming) {
+    // Auto-scroll to bottom when new content arrives
+    if (isStreaming && content.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 100),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: Column(
@@ -312,13 +333,18 @@ class _RecipeScreenState extends State<RecipeScreen>
               ),
               child: SingleChildScrollView(
                 controller: _scrollController,
+                physics: const BouncingScrollPhysics(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    MarkdownBody(
-                      data: content,
-                      styleSheet: _getMarkdownStyleSheet(),
-                      selectable: true,
+                    RepaintBoundary(
+                      child: MarkdownBody(
+                        data: content,
+                        styleSheet: _getMarkdownStyleSheet(),
+                        selectable: true,
+                        shrinkWrap: false,
+                        fitContent: false,
+                      ),
                     ),
                     if (isStreaming) ...[
                       const SizedBox(height: AppConstants.smallPadding),
@@ -399,70 +425,33 @@ class _RecipeScreenState extends State<RecipeScreen>
             ),
           ),
           const SizedBox(height: AppConstants.defaultPadding),
-          Row(
-            children: [
-              Expanded(
-                child: AnimatedButton(
-                  onPressed: _regenerateRecipe,
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withOpacity(0.1),
-                      Colors.white.withOpacity(0.05),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.refresh,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      SizedBox(width: AppConstants.smallPadding),
-                      Text(
-                        'Try Again',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+          AnimatedButton(
+            onPressed: _regenerateRecipe,
+            gradient: LinearGradient(
+              colors: [
+                Colors.white.withOpacity(0.1),
+                Colors.white.withOpacity(0.05),
+              ],
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.refresh,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                SizedBox(width: AppConstants.smallPadding),
+                Text(
+                  'Try Again',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
-              const SizedBox(width: AppConstants.defaultPadding),
-              Expanded(
-                child: AnimatedButton(
-                  onPressed: () => context.goToChat(widget.ingredients),
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withOpacity(0.1),
-                      Colors.white.withOpacity(0.05),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.chat,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      SizedBox(width: AppConstants.smallPadding),
-                      Text(
-                        'Ask Chef',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),

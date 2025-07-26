@@ -70,7 +70,7 @@ Dio _createDio() {
   // Configure base options
   dio.options = BaseOptions(
     connectTimeout: const Duration(milliseconds: 30000),
-    receiveTimeout: const Duration(milliseconds: 30000),
+    receiveTimeout: const Duration(milliseconds: 120000), // Increased to 2 minutes for AI responses
     sendTimeout: const Duration(milliseconds: 30000),
     headers: {
       'Content-Type': 'application/json',

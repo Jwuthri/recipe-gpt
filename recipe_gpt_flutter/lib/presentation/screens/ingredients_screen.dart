@@ -81,6 +81,19 @@ class _IngredientsScreenState extends State<IngredientsScreen>
     });
   }
 
+  void _addIngredient() {
+    showDialog(
+      context: context,
+      builder: (context) => _AddIngredientDialog(
+        onAddIngredient: (ingredient) {
+          setState(() {
+            _editedIngredients.add(ingredient);
+          });
+        },
+      ),
+    );
+  }
+
   void _generateRecipe() {
     if (_selectedStyle == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -342,6 +355,50 @@ class _IngredientsScreenState extends State<IngredientsScreen>
               ),
             );
           }),
+          // Add ingredient button
+          GestureDetector(
+            onTap: _addIngredient,
+            child: Container(
+              margin: const EdgeInsets.only(top: AppConstants.defaultPadding),
+              padding: const EdgeInsets.all(AppConstants.defaultPadding),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+                border: Border.all(
+                  color: const Color(0xFF4ECDC4).withOpacity(0.5),
+                  style: BorderStyle.solid,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4ECDC4), Color(0xFF44A08D)],
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Icon(
+                      Icons.add,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.smallPadding),
+                  Text(
+                    'Add Ingredient',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF4ECDC4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -561,6 +618,310 @@ class _IngredientsScreenState extends State<IngredientsScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Dialog for adding a new ingredient manually
+class _AddIngredientDialog extends StatefulWidget {
+  const _AddIngredientDialog({
+    required this.onAddIngredient,
+  });
+
+  final Function(Ingredient) onAddIngredient;
+
+  @override
+  State<_AddIngredientDialog> createState() => _AddIngredientDialogState();
+}
+
+class _AddIngredientDialogState extends State<_AddIngredientDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _quantityController = TextEditingController();
+  String _selectedUnit = 'pieces';
+
+  final List<String> _units = [
+    'pieces',
+    'g',
+    'kg',
+    'ml',
+    'l',
+    'cups',
+    'tbsp',
+    'tsp',
+    'oz',
+    'lbs',
+    'cans',
+    'bottles',
+    'packets',
+    'slices',
+  ];
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  void _addIngredient() {
+    if (_formKey.currentState!.validate()) {
+      final ingredient = Ingredient(
+        name: _nameController.text.trim(),
+        unit: _selectedUnit,
+        quantity: _quantityController.text.trim(),
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+      
+      widget.onAddIngredient(ingredient);
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.all(AppConstants.largePadding),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF2C3E50),
+              Color(0xFF4A6741),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(AppConstants.largeBorderRadius),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.2),
+          ),
+        ),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4ECDC4), Color(0xFF44A08D)],
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Icon(
+                      Icons.add,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.smallPadding),
+                  Text(
+                    'Add Ingredient',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppConstants.largePadding),
+
+              // Ingredient name field
+              Text(
+                'Ingredient Name',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: AppConstants.smallPadding),
+              TextFormField(
+                controller: _nameController,
+                style: const TextStyle(color: Colors.white),
+                contextMenuBuilder: (context, editableTextState) {
+                  // Disable system context menu to prevent iOS error
+                  return const SizedBox.shrink();
+                },
+                decoration: InputDecoration(
+                  hintText: 'e.g., Tomatoes',
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.1),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+                    borderSide: const BorderSide(color: Color(0xFF4ECDC4)),
+                  ),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter an ingredient name';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: AppConstants.defaultPadding),
+
+              // Quantity and Unit row
+              Row(
+                children: [
+                  // Quantity field
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Quantity',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.smallPadding),
+                        TextFormField(
+                          controller: _quantityController,
+                          style: const TextStyle(color: Colors.white),
+                          keyboardType: TextInputType.number,
+                          contextMenuBuilder: (context, editableTextState) {
+                            // Disable system context menu to prevent iOS error
+                            return const SizedBox.shrink();
+                          },
+                          decoration: InputDecoration(
+                            hintText: '2',
+                            hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.1),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+                              borderSide: const BorderSide(color: Color(0xFF4ECDC4)),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Enter quantity';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.defaultPadding),
+                  
+                  // Unit dropdown
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Unit',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.smallPadding),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: AppConstants.defaultPadding),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _selectedUnit,
+                              isExpanded: true,
+                              dropdownColor: const Color(0xFF2C3E50),
+                              style: const TextStyle(color: Colors.white),
+                              icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                              onChanged: (String? newValue) {
+                                if (newValue != null) {
+                                  setState(() {
+                                    _selectedUnit = newValue;
+                                  });
+                                }
+                              },
+                              items: _units.map<DropdownMenuItem<String>>((String unit) {
+                                return DropdownMenuItem<String>(
+                                  value: unit,
+                                  child: Text(unit),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppConstants.extraLargePadding),
+
+              // Action buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: AppConstants.defaultPadding),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+                          side: BorderSide(color: Colors.white.withOpacity(0.3)),
+                        ),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.8),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.defaultPadding),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _addIngredient,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4ECDC4),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: AppConstants.defaultPadding),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+                        ),
+                      ),
+                      child: const Text(
+                        'Add',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

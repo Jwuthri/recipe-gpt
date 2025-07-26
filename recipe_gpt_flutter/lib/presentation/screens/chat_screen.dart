@@ -453,6 +453,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 maxLines: null,
                 keyboardType: TextInputType.multiline,
                 textCapitalization: TextCapitalization.sentences,
+                contextMenuBuilder: (context, editableTextState) {
+                  // Disable system context menu to prevent iOS error
+                  return const SizedBox.shrink();
+                },
                 decoration: InputDecoration(
                   hintText: 'Ask me anything about cooking...',
                   border: OutlineInputBorder(

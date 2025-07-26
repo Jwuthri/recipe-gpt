@@ -76,6 +76,9 @@ class NetworkClient {
             ...?headers,
           },
           responseType: ResponseType.stream,
+          receiveTimeout: const Duration(milliseconds: 120000), // 2 minutes for streaming
+          sendTimeout: const Duration(milliseconds: 30000),
+          receiveDataWhenStatusError: true,
         ),
       );
 
@@ -102,46 +105,55 @@ class NetworkClient {
   Stream<String> _parseSSEStream(Stream<Uint8List> byteStream) async* {
     String buffer = '';
     
-    await for (final bytes in byteStream) {
-      final chunk = utf8.decode(bytes);
-      buffer += chunk;
-      
-      // Process complete lines
-      final lines = buffer.split('\n');
-      buffer = lines.removeLast(); // Keep incomplete line in buffer
-      
-      for (final line in lines) {
-        if (line.startsWith('data: ')) {
-          final data = line.substring(6);
+    try {
+      await for (final bytes in byteStream) {
+        final chunk = utf8.decode(bytes, allowMalformed: true);
+        buffer += chunk;
+        
+        // Process complete lines
+        final lines = buffer.split('\n');
+        buffer = lines.removeLast(); // Keep incomplete line in buffer
+        
+        for (final line in lines) {
+          final trimmedLine = line.trim();
           
-          // Skip keep-alive messages
-          if (data.trim() == '[DONE]') {
-            return;
-          }
-          
-          try {
-            final jsonData = jsonDecode(data);
+          if (trimmedLine.startsWith('data: ')) {
+            final data = trimmedLine.substring(6).trim();
             
-            // Extract content from Gemini response structure
-            if (jsonData['candidates'] != null && 
-                jsonData['candidates'].isNotEmpty) {
-              final candidate = jsonData['candidates'][0];
-              if (candidate['content'] != null && 
-                  candidate['content']['parts'] != null &&
-                  candidate['content']['parts'].isNotEmpty) {
-                final text = candidate['content']['parts'][0]['text'];
-                if (text != null && text.isNotEmpty) {
-                  yield text as String;
+            // Skip keep-alive messages and empty data
+            if (data == '[DONE]' || data.isEmpty) {
+              if (data == '[DONE]') return;
+              continue;
+            }
+            
+            try {
+              final jsonData = jsonDecode(data);
+              
+              // Extract content from Gemini response structure
+              if (jsonData['candidates'] != null && 
+                  jsonData['candidates'].isNotEmpty) {
+                final candidate = jsonData['candidates'][0];
+                if (candidate['content'] != null && 
+                    candidate['content']['parts'] != null &&
+                    candidate['content']['parts'].isNotEmpty) {
+                  final text = candidate['content']['parts'][0]['text'];
+                  if (text != null && text.toString().isNotEmpty) {
+                    // Yield each chunk immediately for real-time streaming
+                    yield text.toString();
+                  }
                 }
               }
+            } catch (e) {
+              // Skip malformed JSON chunks but continue processing
+              print('[SSE] Failed to parse chunk: $e, data: $data');
+              continue;
             }
-          } catch (e) {
-            // Skip malformed JSON chunks
-            print('Failed to parse SSE chunk: $e');
-            continue;
           }
         }
       }
+    } catch (e) {
+      print('[SSE] Stream processing error: $e');
+      rethrow;
     }
   }
 
