@@ -5,6 +5,12 @@
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_STREAM_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent';
+
+// Check if API key is available
+if (!GEMINI_API_KEY || GEMINI_API_KEY === 'your_api_key_here') {
+  console.warn('⚠️ GEMINI_API_KEY not configured! Please add your API key to .env file');
+}
 
 class AIService {
   async analyzeImages(imageUris, onProgress = null) {
@@ -75,8 +81,8 @@ class AIService {
             },
           ],
           generationConfig: {
-            maxOutputTokens: 5000,
-            temperature: 0.3,
+            maxOutputTokens: 2048 * 4,
+            temperature: 0.33,
           },
         }),
       });
@@ -143,8 +149,8 @@ class AIService {
             },
           ],
           generationConfig: {
-            maxOutputTokens: 8000,
-            temperature: 0.7,
+            maxOutputTokens: 2048 * 4,
+            temperature: 0.33,
           },
         }),
       });
@@ -165,17 +171,19 @@ class AIService {
 
       const fullContent = data.candidates[0].content.parts[0].text;
       
-      // Simulate streaming by sending chunks
+      // Fast streaming by sentences
       if (onChunk) {
-        const words = fullContent.split(' ');
+        const sentences = fullContent.split(/([.!?]\s+)/);
         let currentContent = '';
         
-        for (let i = 0; i < words.length; i++) {
-          currentContent += (i > 0 ? ' ' : '') + words[i];
-          onChunk(words[i] + (i < words.length - 1 ? ' ' : ''), currentContent);
+        for (let i = 0; i < sentences.length; i++) {
+          currentContent += sentences[i];
+          onChunk(sentences[i], currentContent);
           
-          // Small delay to simulate streaming
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // Fast streaming with minimal delay
+          if (i < sentences.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 5));
+          }
         }
       }
       
@@ -212,58 +220,134 @@ class AIService {
     });
   }
 
+  // Helper method to filter out potentially problematic ingredients
+  filterIngredients(ingredients) {
+    const problematicKeywords = [
+      'beer', 'wine', 'vodka', 'whiskey', 'rum', 'gin', 'alcohol', 'liquor',
+      'sake', 'champagne', 'brandy', 'tequila', 'cocktail', 'bourbon'
+    ];
+    
+    return ingredients.filter(ingredient => {
+      const name = ingredient.name.toLowerCase();
+      const isProblematic = problematicKeywords.some(keyword => 
+        name.includes(keyword)
+      );
+      
+      if (isProblematic) {
+        console.log(`🚫 Filtering out potentially problematic ingredient: ${ingredient.name}`);
+      }
+      
+      return !isProblematic;
+    });
+  }
+
   // Chat method for conversational recipe assistance
   async generateChatResponse(prompt, onChunk, onComplete, onError) {
     try {
+      // Check if API key is available
+      if (!GEMINI_API_KEY || GEMINI_API_KEY === 'your_api_key_here') {
+        const error = new Error('Gemini API key not configured. Please add EXPO_PUBLIC_GEMINI_API_KEY to your .env file.');
+        console.error(error.message);
+        if (onError) onError(error);
+        throw error;
+      }
+
+      console.log('🔥 Making API request to Gemini...');
+      console.log('📝 Prompt length:', prompt.length);
+
+      const requestBody = {
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          maxOutputTokens: 2048 * 4,
+          temperature: 0.33,
+        },
+      };
+
+      // React Native doesn't support streaming, so use regular API with chunked processing
       const response = await fetch(`${GEMINI_BASE_URL}?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            maxOutputTokens: 2048,
-            temperature: 0.33,
-          },
-        }),
+        body: JSON.stringify(requestBody),
       });
 
+      console.log('📡 Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('❌ HTTP error response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
       
       if (data.error) {
-        throw new Error(data.error.message);
+        console.error('❌ Gemini API error:', data.error);
+        throw new Error(`Gemini API error: ${data.error.message}`);
       }
 
       if (!data.candidates || !data.candidates[0]) {
+        console.error('❌ No candidates in response:', data);
         throw new Error('No response from Gemini API');
       }
 
-      const fullContent = data.candidates[0].content.parts[0].text;
+      // Check if content was blocked by safety filters
+      const candidate = data.candidates[0];
+      if (candidate.finishReason === 'SAFETY') {
+        console.error('❌ Content blocked by safety filters:', candidate.safetyRatings);
+        throw new Error('Content was blocked by safety filters. Please try with different ingredients.');
+      }
+
+      if (candidate.finishReason === 'RECITATION') {
+        console.error('❌ Content blocked due to recitation:', candidate);
+        throw new Error('Content was blocked due to potential copyright issues. Please try again.');
+      }
+
+      if (candidate.finishReason === 'MAX_TOKENS') {
+        console.error('❌ Response hit maximum token limit:', candidate);
+        throw new Error('Response was too long and got cut off. Please try with fewer ingredients or a simpler request.');
+      }
+
+      if (!candidate.content || !candidate.content.parts || !candidate.content.parts[0]) {
+        console.error('❌ Invalid response structure:', candidate);
+        console.error('❌ Finish reason:', candidate.finishReason);
+        console.error('❌ Safety ratings:', candidate.safetyRatings);
+        throw new Error('Invalid response structure from Gemini API. Content may have been filtered.');
+      }
+
+      const fullContent = candidate.content.parts[0].text;
+      console.log('✅ Recipe generated successfully! Length:', fullContent.length);
       
-      // Simulate streaming by sending chunks
+      // Check if content is empty
+      if (!fullContent || fullContent.trim().length === 0) {
+        console.error('❌ Empty content received');
+        console.error('❌ Full response:', JSON.stringify(data, null, 2));
+        throw new Error('Received empty response. Content may have been filtered by safety policies.');
+      }
+      
+      // Simulate streaming with sentence-by-sentence reveal (much faster)
       if (onChunk) {
-        const words = fullContent.split(' ');
         let currentContent = '';
+        const sentences = fullContent.split(/(?<=[.!?])\s+/);
         
-        for (let i = 0; i < words.length; i++) {
-          currentContent += (i > 0 ? ' ' : '') + words[i];
-          onChunk(words[i] + (i < words.length - 1 ? ' ' : ''), currentContent);
+        for (let i = 0; i < sentences.length; i++) {
+          const sentence = sentences[i] + (i < sentences.length - 1 ? ' ' : '');
+          currentContent += sentence;
+          onChunk(sentence, currentContent);
           
-          // Small delay to simulate streaming
-          await new Promise(resolve => setTimeout(resolve, 30));
+          // Fast sentence streaming - 200ms between sentences
+          if (i < sentences.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
         }
       }
       
@@ -272,7 +356,11 @@ class AIService {
       }
 
     } catch (error) {
-      console.error('Error generating chat response with Gemini:', error);
+      console.error('💥 Error generating chat response with Gemini:', error);
+      console.error('💥 Error stack:', error.stack);
+      console.error('💥 Error message:', error.message);
+      console.error('💥 Error name:', error.name);
+      
       if (onError) {
         onError(error);
       }

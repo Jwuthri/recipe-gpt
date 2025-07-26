@@ -99,7 +99,7 @@ const CameraScreen = ({navigation}) => {
   };
 
   const handleImageResponse = (result) => {
-    if (result.cancelled || !result.assets) {
+    if (result.canceled || !result.assets) {
       return;
     }
 
@@ -135,7 +135,7 @@ const CameraScreen = ({navigation}) => {
         setAnalysisProgress(progress);
       });
 
-      navigation.navigate('Chat', {ingredients});
+      navigation.navigate('Ingredients', {ingredients});
     } catch (error) {
       Alert.alert('Error', 'Failed to analyze images. Please try again.');
       console.error('Analysis error:', error);
@@ -222,7 +222,7 @@ const CameraScreen = ({navigation}) => {
               onPress={showImagePicker}
               style={styles.cameraButton}
               labelStyle={styles.cameraButtonText}
-              icon="camera-plus"
+              icon="camera-plus-outline"
               disabled={loading || images.length >= 3}
             >
               {images.length >= 3 ? 'Maximum Reached' : '📸 Add Photo'}
@@ -283,7 +283,7 @@ const CameraScreen = ({navigation}) => {
                 onPress={analyzeImages}
                 style={styles.analyzeButton}
                 labelStyle={styles.analyzeButtonText}
-                icon="sparkles"
+                icon="creation"
                 loading={loading}
                 disabled={loading}
               >
@@ -339,6 +339,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
     backdropFilter: 'blur(10px)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
