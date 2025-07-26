@@ -8,6 +8,7 @@ class BackendService {
     this.currentUser = null;
     this.currentSession = null;
     this.baseURL = BACKEND_URL;
+    this.apiPrefix = '/api/v1';
   }
 
   async initializeUser() {
@@ -20,7 +21,7 @@ class BackendService {
       }
 
       // Get or create user
-      const response = await fetch(`${this.baseURL}/users/`, {
+      const response = await fetch(`${this.baseURL}${this.apiPrefix}/users/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,7 +52,7 @@ class BackendService {
         await this.initializeUser();
       }
 
-      const response = await fetch(`${this.baseURL}/sessions/`, {
+      const response = await fetch(`${this.baseURL}${this.apiPrefix}/sessions/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -59,7 +60,6 @@ class BackendService {
         body: JSON.stringify({
           user_id: this.currentUser.id,
           title: ingredients ? 'Recipe Session' : 'Chat Session',
-          ingredients: ingredients,
           session_type: ingredients ? 'recipe_generation' : 'chat',
         }),
       });
@@ -76,13 +76,20 @@ class BackendService {
     }
   }
 
+  clearCurrentSession() {
+    /**
+     * Clear the current session to force creation of a new one
+     */
+    this.currentSession = null;
+  }
+
   async getUserSessions() {
     try {
       if (!this.currentUser) {
         await this.initializeUser();
       }
 
-      const response = await fetch(`${this.baseURL}/users/${this.currentUser.id}/sessions`);
+      const response = await fetch(`${this.baseURL}${this.apiPrefix}/users/${this.currentUser.id}/sessions/`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -97,7 +104,7 @@ class BackendService {
 
   async getSessionMessages(sessionId) {
     try {
-      const response = await fetch(`${this.baseURL}/sessions/${sessionId}/messages`);
+      const response = await fetch(`${this.baseURL}${this.apiPrefix}/sessions/${sessionId}`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -116,9 +123,12 @@ class BackendService {
         await this.initializeUser();
       }
 
+      // Always create a new session for image analysis
+      await this.createSession();
+
       // Create FormData for file upload
       const formData = new FormData();
-      formData.append('user_id', this.currentUser.id.toString());
+      formData.append('session_id', this.currentSession.id.toString());
 
       for (let i = 0; i < imageUris.length; i++) {
         const uri = imageUris[i];
@@ -142,7 +152,7 @@ class BackendService {
         onProgress('🔍 Scanning your photos...');
       }
 
-      const response = await fetch(`${this.baseURL}/analyze-images`, {
+      const response = await fetch(`${this.baseURL}${this.apiPrefix}/analyze-images`, {
         method: 'POST',
         body: formData,
       });
@@ -182,13 +192,12 @@ class BackendService {
       const requestBody = {
         session_id: this.currentSession.id,
         message: message,
-        context: context,
         ingredients: ingredients,
       };
 
       if (onChunk) {
         // Use regular endpoint with smart chunking for React Native compatibility  
-        const response = await fetch(`${this.baseURL}/chat`, {
+        const response = await fetch(`${this.baseURL}${this.apiPrefix}/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -231,7 +240,7 @@ class BackendService {
         }
       } else {
         // Use non-streaming endpoint
-        const response = await fetch(`${this.baseURL}/chat`, {
+        const response = await fetch(`${this.baseURL}${this.apiPrefix}/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -262,7 +271,12 @@ class BackendService {
   }
 
   // Recipe generation methods
-  async generateRecipeStream(ingredients, onChunk, onComplete, onError) {
+  async generateRecipeStream(ingredients, onChunk, onComplete, onError, forceNewSession = false) {
+    // Create new session if requested
+    if (forceNewSession) {
+      await this.createSession(ingredients);
+    }
+
     const ingredientList = ingredients
       .map(ing => `${ing.quantity} ${ing.unit} ${ing.name}`)
       .join('\n- ');
@@ -272,7 +286,7 @@ class BackendService {
     return this.sendChatMessage(prompt, null, ingredients, onChunk, onComplete, onError);
   }
 
-  async generateRecipe(ingredients) {
+  async generateRecipe(ingredients, forceNewSession = false) {
     return new Promise((resolve, reject) => {
       let fullContent = '';
       
@@ -286,7 +300,8 @@ class BackendService {
         },
         (error) => {
           reject(error);
-        }
+        },
+        forceNewSession
       );
     });
   }

@@ -2,7 +2,7 @@ import os
 import base64
 import json
 import asyncio
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, AsyncGenerator, Tuple
 from fastapi import UploadFile, HTTPException
 import google.generativeai as genai
 from PIL import Image
@@ -22,8 +22,8 @@ class LLMService:
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel('gemini-2.5-flash')
     
-    async def analyze_images_stream(self, files: List[UploadFile]) -> AsyncGenerator[dict, None]:
-        """Analyze uploaded images to extract ingredients with streaming progress"""
+    async def analyze_images_stream(self, files: List[UploadFile], session_id: int, db: Session) -> AsyncGenerator[dict, None]:
+        """Analyze uploaded images to extract ingredients with streaming progress and conversation history"""
         try:
             if not files:
                 raise HTTPException(status_code=400, detail="No images provided")
@@ -86,8 +86,11 @@ class LLMService:
             # Send analysis progress
             yield {"progress": "🧠 AI is analyzing your ingredients...", "stage": "analyzing"}
             
-            # Create prompt based on number of images
-            prompt_text = f"""Analyze these {len(files)} image(s) of a fridge/pantry and list all visible food ingredients with their estimated quantities. 
+            # Build conversation history
+            conversation_messages = self._build_image_analysis_conversation(session_id, db, len(files))
+            
+            # Create prompt for image analysis
+            analysis_prompt = f"""Analyze these {len(files)} image(s) of a fridge/pantry and list all visible food ingredients with their estimated quantities. 
 
 Format the response as a JSON array where each item has "name", "unit", and "quantity" properties. 
 - "name": the ingredient name
@@ -103,8 +106,12 @@ Only include actual food ingredients, not containers or non-food items.
 If the same ingredient appears in multiple images, combine the quantities.
 Return ONLY the JSON array, no additional text."""
 
-            # Prepare content for Gemini
-            content_parts = [prompt_text]
+            # Prepare content for Gemini with conversation history
+            gemini_content = self._format_for_gemini(conversation_messages)
+            gemini_content += f"\n\nUser: {analysis_prompt}"
+            
+            # Add images to content
+            content_parts = [gemini_content]
             for img_data in image_parts:
                 content_parts.append({
                     'mime_type': img_data['mime_type'],
@@ -161,6 +168,7 @@ Return ONLY the JSON array, no additional text."""
                     "progress": f"✅ Analysis complete! Found {len(ingredients)} ingredients",
                     "stage": "complete",
                     "ingredients": ingredients,
+                    "response": response.text,
                     "done": True
                 }
                 
@@ -171,6 +179,7 @@ Return ONLY the JSON array, no additional text."""
                     "progress": f"✅ Analysis complete! Found {len(ingredients)} ingredients",
                     "stage": "complete", 
                     "ingredients": [{"name": ing.name, "unit": ing.unit, "quantity": ing.quantity} for ing in ingredients],
+                    "response": response.text,
                     "done": True
                 }
                 
@@ -179,8 +188,8 @@ Return ONLY the JSON array, no additional text."""
                 raise e
             raise HTTPException(status_code=500, detail=f"Error analyzing images: {str(e)}")
 
-    async def analyze_images(self, files: List[UploadFile]) -> List[Ingredient]:
-        """Analyze uploaded images to extract ingredients"""
+    async def analyze_images(self, files: List[UploadFile], session_id: int, db: Session) -> Tuple[str, List[Ingredient]]:
+        """Analyze uploaded images to extract ingredients with conversation history"""
         try:
             if not files:
                 raise HTTPException(status_code=400, detail="No images provided")
@@ -234,8 +243,11 @@ Return ONLY the JSON array, no additional text."""
                 except Exception as e:
                     raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
             
-            # Create prompt based on number of images
-            prompt_text = f"""Analyze these {len(files)} image(s) of a fridge/pantry and list all visible food ingredients with their estimated quantities. 
+            # Build conversation history
+            conversation_messages = self._build_image_analysis_conversation(session_id, db, len(files))
+            
+            # Create prompt for image analysis
+            analysis_prompt = f"""Analyze these {len(files)} image(s) of a fridge/pantry and list all visible food ingredients with their estimated quantities. 
 
 Format the response as a JSON array where each item has "name", "unit", and "quantity" properties. 
 - "name": the ingredient name
@@ -251,8 +263,12 @@ Only include actual food ingredients, not containers or non-food items.
 If the same ingredient appears in multiple images, combine the quantities.
 Return ONLY the JSON array, no additional text."""
 
-            # Prepare content for Gemini
-            content_parts = [prompt_text]
+            # Prepare content for Gemini with conversation history
+            gemini_content = self._format_for_gemini(conversation_messages)
+            gemini_content += f"\n\nUser: {analysis_prompt}"
+            
+            # Add images to content
+            content_parts = [gemini_content]
             for img_data in image_parts:
                 content_parts.append({
                     'mime_type': img_data['mime_type'],
@@ -298,11 +314,13 @@ Return ONLY the JSON array, no additional text."""
                             quantity=str(item['quantity'])
                         ))
                 
-                return ingredients if ingredients else [Ingredient(name="No ingredients detected", unit="units", quantity="0")]
+                result_ingredients = ingredients if ingredients else [Ingredient(name="No ingredients detected", unit="units", quantity="0")]
+                return response.text, result_ingredients
                 
             except (json.JSONDecodeError, KeyError) as e:
                 # Fallback: parse ingredients from text
-                return self._parse_ingredients_from_text(response.text)
+                ingredients = self._parse_ingredients_from_text(response.text)
+                return response.text, ingredients
                 
         except Exception as e:
             if isinstance(e, HTTPException):
@@ -489,7 +507,8 @@ Return ONLY the JSON array, no additional text."""
     
     def _get_system_prompt(self, ingredients: Optional[List] = None) -> str:
         """Get the system prompt for the cooking assistant"""
-        base_prompt = """You are a helpful cooking assistant and recipe expert.
+        base_prompt = """
+You are a helpful cooking assistant and recipe expert.
 
 Respond helpfully using proper markdown formatting:
 - Use **bold** for emphasis and key points
@@ -499,8 +518,12 @@ Respond helpfully using proper markdown formatting:
 - Keep responses focused, helpful but not too long
 - Make it visually appealing with proper formatting
 
-If its a recipe request, please provide a recipe with the following format:
-```Recipe template
+You are also a pro at triage requests:
+- if the user is asking a question about the previous recipe or an update please use the `RECIPE TEMPLATE` to respond.
+- if a user is asking for question none related to cooking, please respond with a basic message that you are not able to help with that.
+- if the user is asking for a recipe, please provide a recipe with the `RECIPE TEMPLATE` to respond.
+
+```RECIPE TEMPLATE
 # 🍳 [Creative Recipe Name]
 
 ⏱️ **Prep Time:** X minutes | 🔥 **Cook Time:** X minutes | 🍽️ **Serves:** X people
@@ -529,13 +552,13 @@ If its a recipe request, please provide a recipe with the following format:
 ## 🍳Nutritional information:
 | Nutrient | Amount |
 |----------|--------|
-| Calories | 450 |
-| Protein | 25g |
-| Carbs | 35g |
-| Fat | 20g |
-| Sugar | 8g |
-| Fiber | 5g |
-| Sodium | 650mg |
+| Calories | 450    |
+| Protein  | 25g    |
+| Carbs    | 35g    |
+| Fat      | 20g    |
+| Sugar    | 8g     |
+| Fiber    | 5g     |
+| Sodium   | 650mg  |
 ```"""
 
         return base_prompt
@@ -608,3 +631,23 @@ If its a recipe request, please provide a recipe with the following format:
                         ))
         
         return ingredients if ingredients else [Ingredient(name="No ingredients detected", unit="units", quantity="0")] 
+
+    def _build_image_analysis_conversation(self, session_id: int, db: Session, num_images: int) -> List[dict]:
+        """Build conversation messages for image analysis"""
+        from models import Message  # Import here to avoid circular imports
+        
+        # Get conversation history
+        messages = db.query(Message).filter(
+            Message.session_id == session_id
+        ).order_by(Message.created_at).all()
+        
+        conversation_messages = []
+        
+        # Add all historical messages (including system message)
+        for msg in messages:
+            conversation_messages.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+        
+        return conversation_messages 

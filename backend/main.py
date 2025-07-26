@@ -6,6 +6,7 @@ import uvicorn
 import os
 from typing import List, Optional
 import json
+import base64
 
 from database import get_db, engine
 from models import Base, User, ChatSession, Message
@@ -108,15 +109,15 @@ async def get_user_sessions(user_id: int, db: Session = Depends(get_db)):
 @app.post("/analyze-images/stream")
 async def analyze_images_stream(
     files: List[UploadFile] = File(...),
-    user_id: int = Form(...),
+    session_id: int = Form(...),
     db: Session = Depends(get_db)
 ):
     """Analyze images to extract ingredients with streaming progress"""
     try:
-        # Verify user exists
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+        # Verify session exists
+        session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
         
         # Validate files
         if len(files) == 0:
@@ -124,13 +125,50 @@ async def analyze_images_stream(
         if len(files) > 3:
             raise HTTPException(status_code=400, detail="Maximum 3 images allowed")
         
+        # Convert images to base64 for storage
+        image_data = []
+        for file in files:
+            content = await file.read()
+            b64_image = base64.b64encode(content).decode('utf-8')
+            image_data.append({
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "data": b64_image
+            })
+        
+        # Store user message with images
+        user_message = Message(
+            session_id=session_id,
+            content="Please analyze these images to extract ingredients",
+            role="user",
+            message_type="image",
+            meta={"images": image_data}
+        )
+        db.add(user_message)
+        db.commit()
+        
         async def generate_analysis_stream():
             try:
                 # Send initial progress
                 yield f"data: {json.dumps({'progress': '📦 Preparing images for analysis...', 'stage': 'preparing'})}\n\n"
-                # Process images with streaming progress
-                async for update in llm_service.analyze_images_stream(files):
+                
+                # Process images with streaming progress and conversation history
+                full_response = ""
+                async for update in llm_service.analyze_images_stream(files, session_id, db):
+                    if update.get("done"):
+                        full_response = update.get("response", "")
                     yield f"data: {json.dumps(update)}\n\n"
+                
+                # Store AI response as assistant message
+                if full_response:
+                    ai_message = Message(
+                        session_id=session_id,
+                        content=full_response,
+                        role="assistant",
+                        message_type="text"
+                    )
+                    db.add(ai_message)
+                    db.commit()
                 
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -151,15 +189,15 @@ async def analyze_images_stream(
 @app.post("/analyze-images", response_model=IngredientAnalysisResponse)
 async def analyze_images(
     files: List[UploadFile] = File(...),
-    user_id: int = Form(...),
+    session_id: int = Form(...),
     db: Session = Depends(get_db)
 ):
     """Analyze images to extract ingredients (non-streaming fallback)"""
     try:
-        # Verify user exists
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+        # Verify session exists
+        session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
         
         # Validate files
         if len(files) == 0:
@@ -167,8 +205,40 @@ async def analyze_images(
         if len(files) > 3:
             raise HTTPException(status_code=400, detail="Maximum 3 images allowed")
         
-        # Process images with LLM
-        ingredients = await llm_service.analyze_images(files)
+        # Convert images to base64 for storage
+        image_data = []
+        for file in files:
+            content = await file.read()
+            b64_image = base64.b64encode(content).decode('utf-8')
+            image_data.append({
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "data": b64_image
+            })
+        
+        # Store user message with images
+        user_message = Message(
+            session_id=session_id,
+            content="Please analyze these images to extract ingredients",
+            role="user",
+            message_type="image",
+            meta={"images": image_data}
+        )
+        db.add(user_message)
+        db.commit()
+        
+        # Process images with LLM and conversation history
+        ai_response, ingredients = await llm_service.analyze_images(files, session_id, db)
+        
+        # Store AI response as assistant message
+        ai_message = Message(
+            session_id=session_id,
+            content=ai_response,
+            role="assistant",
+            message_type="text"
+        )
+        db.add(ai_message)
+        db.commit()
         
         return IngredientAnalysisResponse(
             success=True,
