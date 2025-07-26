@@ -9,6 +9,7 @@ from PIL import Image
 import io
 from dotenv import load_dotenv
 from schemas import Ingredient
+from sqlalchemy.orm import Session
 
 load_dotenv()
 
@@ -263,7 +264,7 @@ Return ONLY the JSON array, no additional text."""
                 self.model.generate_content,
                 content_parts,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=2048,
+                    max_output_tokens=2048*4,
                     temperature=0.33,
                 )
             )
@@ -374,18 +375,22 @@ Return ONLY the JSON array, no additional text."""
     async def generate_chat_response(
         self, 
         message: str, 
-        context: Optional[str] = None,
+        session_id: int,
+        db: Session,
         ingredients: Optional[List[Ingredient]] = None
     ) -> str:
-        """Generate a chat response using Gemini"""
+        """Generate a chat response using Gemini with proper conversation history"""
         try:
-            # Build enhanced prompt
-            enhanced_prompt = self._build_chat_prompt(message, context, ingredients)
+            # Build conversation messages from database
+            conversation_messages = self._build_conversation_messages(session_id, db, message, ingredients)
+            
+            # Convert to Gemini format
+            gemini_content = self._format_for_gemini(conversation_messages)
             
             # Generate response
             response = await asyncio.to_thread(
                 self.model.generate_content,
-                enhanced_prompt,
+                gemini_content,
                 generation_config=genai.types.GenerationConfig(
                     max_output_tokens=2048,
                     temperature=0.33,
@@ -405,18 +410,22 @@ Return ONLY the JSON array, no additional text."""
     async def generate_chat_response_stream(
         self,
         message: str,
-        context: Optional[str] = None,
+        session_id: int,
+        db: Session,
         ingredients: Optional[List[Ingredient]] = None
     ) -> AsyncGenerator[str, None]:
-        """Generate a streaming chat response"""
+        """Generate a streaming chat response with proper conversation history"""
         try:
-            # Build enhanced prompt
-            enhanced_prompt = self._build_chat_prompt(message, context, ingredients)
+            # Build conversation messages from database
+            conversation_messages = self._build_conversation_messages(session_id, db, message, ingredients)
+            
+            # Convert to Gemini format
+            gemini_content = self._format_for_gemini(conversation_messages)
             
             # Generate response (Gemini doesn't have native streaming, so we simulate it)
             response = await asyncio.to_thread(
                 self.model.generate_content,
-                enhanced_prompt,
+                gemini_content,
                 generation_config=genai.types.GenerationConfig(
                     max_output_tokens=2048,
                     temperature=0.33,
@@ -440,37 +449,48 @@ Return ONLY the JSON array, no additional text."""
                 raise e
             raise HTTPException(status_code=500, detail=f"Error generating streaming response: {str(e)}")
     
-    def _build_chat_prompt(
-        self, 
-        message: str, 
-        context: Optional[str] = None,
+    def _build_conversation_messages(
+        self,
+        session_id: int,
+        db: Session,
+        current_message: str,
         ingredients: Optional[List[Ingredient]] = None
-    ) -> str:
-        """Build an enhanced prompt for chat"""
-        # Check if this is a recipe request
-        is_recipe_request = any(word in message.lower() for word in [
-            'recipe', 'cook', 'prepare', 'make', 'dish', 'meal', 'food', 'ingredient'
-        ])
+    ) -> List[dict]:
+        """Build conversation messages from database history"""
+        from models import Message, ChatSession  # Import here to avoid circular imports
         
-        prompt_parts = []
+        # Get conversation history
+        messages = db.query(Message).filter(
+            Message.session_id == session_id
+        ).order_by(Message.created_at).all()
         
-        # Add context about being a cooking assistant
-        prompt_parts.append("You are a helpful cooking assistant and recipe expert.")
+        conversation_messages = []
         
-        # Add ingredients context if available
+        # Add all historical messages (including system message)
+        for msg in messages:
+            conversation_messages.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+        
+        # Build current user message with ingredients if provided
+        current_content = current_message
         if ingredients:
             ingredient_list = ", ".join([f"{ing.quantity} {ing.unit} {ing.name}" for ing in ingredients])
-            prompt_parts.append(f"Available ingredients: {ingredient_list}")
+            current_content = f"I have these ingredients: {ingredient_list}\n\n{current_message}"
         
-        # Add conversation context if available
-        if context:
-            prompt_parts.append(f"Previous conversation context: {context}")
+        # Add current user message
+        conversation_messages.append({
+            "role": "user", 
+            "content": current_content
+        })
         
-        # Add the user's message
-        prompt_parts.append(f"User's message: {message}")
-        
-        # Add formatting instructions
-        format_instructions = """
+        return conversation_messages
+    
+    def _get_system_prompt(self, ingredients: Optional[List] = None) -> str:
+        """Get the system prompt for the cooking assistant"""
+        base_prompt = """You are a helpful cooking assistant and recipe expert.
+
 Respond helpfully using proper markdown formatting:
 - Use **bold** for emphasis and key points
 - Use bullet points (- or •) for lists
@@ -478,11 +498,7 @@ Respond helpfully using proper markdown formatting:
 - Include relevant emojis to make responses engaging
 - Keep responses focused, helpful but not too long
 - Make it visually appealing with proper formatting
-"""
-        
-        # Add recipe-specific instructions if needed
-        if is_recipe_request:
-            recipe_instructions = """
+
 If its a recipe request, please provide a recipe with the following format:
 ```Recipe template
 # 🍳 [Creative Recipe Name]
@@ -520,13 +536,26 @@ If its a recipe request, please provide a recipe with the following format:
 | Sugar | 8g |
 | Fiber | 5g |
 | Sodium | 650mg |
-```
-"""
-            format_instructions += recipe_instructions
+```"""
+
+        return base_prompt
+    
+    def _format_for_gemini(self, conversation_messages: List[dict]) -> str:
+        """Format conversation messages for Gemini (which expects a single prompt)"""
+        # For now, we'll convert the conversation to a single prompt since Gemini doesn't support chat history natively
+        # In the future, this can be updated when Gemini supports proper conversation format
         
-        prompt_parts.append(format_instructions)
+        formatted_parts = []
         
-        return "\n\n".join(prompt_parts)
+        for msg in conversation_messages:
+            if msg["role"] == "system":
+                formatted_parts.append(msg["content"])
+            elif msg["role"] == "user":
+                formatted_parts.append(f"User: {msg['content']}")
+            elif msg["role"] == "assistant":
+                formatted_parts.append(f"Assistant: {msg['content']}")
+        
+        return "\n\n".join(formatted_parts)
     
     def _split_text_into_chunks(self, text: str) -> List[str]:
         """Split text into chunks for streaming simulation"""

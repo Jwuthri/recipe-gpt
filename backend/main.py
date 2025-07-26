@@ -77,6 +77,18 @@ async def create_session(session: SessionCreate, db: Session = Depends(get_db)):
     db.add(db_session)
     db.commit()
     db.refresh(db_session)
+    
+    # Create initial system message for the session (without ingredients)
+    system_prompt = llm_service._get_system_prompt()
+    system_message = Message(
+        session_id=db_session.id,
+        content=system_prompt,
+        role="system",
+        message_type="system"
+    )
+    db.add(system_message)
+    db.commit()
+    
     return db_session
 
 @app.get("/sessions/{session_id}", response_model=SessionResponse)
@@ -176,28 +188,29 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # Save user message
+        # Save user message with proper role
         user_message = Message(
             session_id=request.session_id,
             content=request.message,
-            is_ai=False,
+            role="user",
             message_type="text"
         )
         db.add(user_message)
         db.commit()
         
-        # Generate AI response
+        # Generate AI response with conversation history
         ai_response = await llm_service.generate_chat_response(
             request.message,
-            request.context,
+            request.session_id,
+            db,
             request.ingredients
         )
         
-        # Save AI message
+        # Save AI message with proper role
         ai_message = Message(
             session_id=request.session_id,
             content=ai_response,
-            is_ai=True,
+            role="assistant",
             message_type="text"
         )
         db.add(ai_message)
@@ -222,11 +235,11 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db)):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # Save user message
+        # Save user message with proper role
         user_message = Message(
             session_id=request.session_id,
             content=request.message,
-            is_ai=False,
+            role="user",
             message_type="text"
         )
         db.add(user_message)
@@ -236,17 +249,18 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db)):
             full_response = ""
             async for chunk in llm_service.generate_chat_response_stream(
                 request.message,
-                request.context,
+                request.session_id,
+                db,
                 request.ingredients
             ):
                 full_response += chunk
                 yield f"data: {json.dumps({'chunk': chunk, 'full_response': full_response})}\n\n"
             
-            # Save complete AI message
+            # Save complete AI message with proper role
             ai_message = Message(
                 session_id=request.session_id,
                 content=full_response,
-                is_ai=True,
+                role="assistant",
                 message_type="text"
             )
             db.add(ai_message)
@@ -274,4 +288,4 @@ async def get_session_messages(session_id: int, db: Session = Depends(get_db)):
     return messages
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)

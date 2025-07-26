@@ -137,13 +137,14 @@ class BackendService {
         formData.append('files', fileData);
       }
 
-      // Use streaming endpoint for real-time progress
-      const response = await fetch(`${this.baseURL}/analyze-images/stream`, {
+      // Use regular endpoint with progress simulation for React Native compatibility
+      if (onProgress) {
+        onProgress('🔍 Scanning your photos...');
+      }
+
+      const response = await fetch(`${this.baseURL}/analyze-images`, {
         method: 'POST',
         body: formData,
-        headers: {
-          'Accept': 'text/event-stream',
-        },
       });
 
       if (!response.ok) {
@@ -151,53 +152,21 @@ class BackendService {
         throw new Error(`Backend error: ${response.status} - ${errorText}`);
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let ingredients = null;
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                
-                // Send progress updates
-                if (data.progress && onProgress) {
-                  onProgress(data.progress);
-                }
-                
-                // Handle completion
-                if (data.done && data.ingredients) {
-                  ingredients = data.ingredients;
-                }
-                
-                // Handle errors
-                if (data.error) {
-                  throw new Error(data.error);
-                }
-              } catch (parseError) {
-                console.warn('Error parsing SSE data:', parseError);
-              }
-            }
-          }
-        }
-      } finally {
-        reader.releaseLock();
+      if (onProgress) {
+        onProgress('🧠 AI is analyzing your ingredients...');
       }
 
-      if (!ingredients) {
+      const result = await response.json();
+
+      if (onProgress) {
+        onProgress('✨ Finalizing ingredient list...');
+      }
+
+      if (!result.ingredients) {
         throw new Error('No ingredients received from analysis');
       }
 
-      return ingredients;
+      return result.ingredients;
     } catch (error) {
       console.error('Error analyzing images:', error);
       throw error;
@@ -218,12 +187,11 @@ class BackendService {
       };
 
       if (onChunk) {
-        // Use streaming endpoint for real-time responses
-        const response = await fetch(`${this.baseURL}/chat/stream`, {
+        // Use regular endpoint with smart chunking for React Native compatibility  
+        const response = await fetch(`${this.baseURL}/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'text/event-stream',
           },
           body: JSON.stringify(requestBody),
         });
@@ -233,42 +201,33 @@ class BackendService {
           throw new Error(`Backend error: ${response.status} - ${errorText}`);
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullResponse = '';
+        const result = await response.json();
+        const fullResponse = result.response;
 
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  
-                  if (data.chunk) {
-                    fullResponse += data.chunk;
-                    if (onChunk) {
-                      onChunk(data.chunk, fullResponse);
-                    }
-                  }
-                  
-                  if (data.done && onComplete) {
-                    onComplete(fullResponse);
-                  }
-                } catch (parseError) {
-                  console.warn('Error parsing SSE data:', parseError);
-                }
-              }
-            }
+        // Smart streaming simulation for better UX
+        const chunks = fullResponse.split(/(?<=\.|\?|!)\s+|\n\n+/);
+        let currentContent = '';
+        
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          currentContent += (i > 0 && !currentContent.endsWith('\n') ? ' ' : '') + chunk;
+          
+          // Add proper spacing for paragraphs and headers
+          if (chunk.includes('\n') || chunk.length > 100) {
+            currentContent += '\n\n';
           }
-        } finally {
-          reader.releaseLock();
+          
+          if (onChunk) {
+            onChunk(chunk, currentContent);
+          }
+          
+          // Variable delay based on chunk size for realistic feel
+          const delay = Math.min(Math.max(chunk.length * 8, 80), 400);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        if (onComplete) {
+          onComplete(fullResponse);
         }
       } else {
         // Use non-streaming endpoint

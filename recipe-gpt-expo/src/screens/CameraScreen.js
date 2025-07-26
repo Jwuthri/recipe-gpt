@@ -99,7 +99,7 @@ const CameraScreen = ({navigation}) => {
   };
 
   const handleImageResponse = (result) => {
-    if (result.cancelled || !result.assets) {
+    if (result.canceled || !result.assets) {
       return;
     }
 
@@ -283,7 +283,7 @@ const CameraScreen = ({navigation}) => {
                 onPress={analyzeImages}
                 style={styles.analyzeButton}
                 labelStyle={styles.analyzeButtonText}
-                icon="sparkles"
+                icon="auto-fix"
                 loading={loading}
                 disabled={loading}
               >

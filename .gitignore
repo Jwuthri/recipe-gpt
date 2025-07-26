@@ -156,3 +156,10 @@ ios/Pods/
 # API Keys (IMPORTANT!)
 src/services/api-keys.js
 src/services/AIService.js.backup .env
+
+*.pyc
+**/venv/** */
+**/__pycache__/*
+/backend/venv/
+
+*/**.db

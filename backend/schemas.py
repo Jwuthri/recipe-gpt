@@ -22,14 +22,12 @@ class UserResponse(BaseModel):
 class SessionCreate(BaseModel):
     user_id: int
     title: Optional[str] = None
-    ingredients: Optional[List[Dict[str, Any]]] = None
     session_type: str = "chat"
 
 class SessionResponse(BaseModel):
     id: int
     user_id: int
     title: Optional[str]
-    ingredients: Optional[List[Dict[str, Any]]]
     session_type: str
     created_at: datetime
     
@@ -40,7 +38,7 @@ class SessionResponse(BaseModel):
 class MessageCreate(BaseModel):
     session_id: int
     content: str
-    is_ai: bool = False
+    role: str  # system, user, assistant
     message_type: str = "text"
     metadata: Optional[Dict[str, Any]] = None
 
@@ -48,7 +46,7 @@ class MessageResponse(BaseModel):
     id: int
     session_id: int
     content: str
-    is_ai: bool
+    role: str  # system, user, assistant
     message_type: str
     metadata: Optional[Dict[str, Any]]
     created_at: datetime
@@ -71,7 +69,6 @@ class IngredientAnalysisResponse(BaseModel):
 class ChatRequest(BaseModel):
     session_id: int
     message: str
-    context: Optional[str] = None
     ingredients: Optional[List[Ingredient]] = None
 
 class ChatStreamResponse(BaseModel):
