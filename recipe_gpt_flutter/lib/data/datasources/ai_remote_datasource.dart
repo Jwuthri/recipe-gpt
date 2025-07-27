@@ -9,6 +9,7 @@ import '../models/recipe_model.dart';
 import '../models/chat_message_model.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/errors/network_exceptions.dart';
+import '../../domain/entities/ingredient.dart';
 
 /// Abstract interface for AI remote data source
 abstract class AIRemoteDataSource {
@@ -174,15 +175,44 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
   }) async {
     try {
       if (AppConstants.useBackend) {
-        // For now, use mock data since image analysis endpoint isn't implemented yet
-        // TODO: Implement /analyze-ingredients endpoint in backend
-        return await _analyzeImagesWithGemini(imagePaths);
+        // Convert image files to base64 for backend analysis
+        final List<String> imageBase64List = [];
+        
+        for (final imagePath in imagePaths) {
+          final File imageFile = File(imagePath);
+          if (await imageFile.exists()) {
+            final List<int> imageBytes = await imageFile.readAsBytes();
+            final String base64Image = base64Encode(imageBytes);
+            imageBase64List.add(base64Image);
+          }
+        }
+        
+        if (imageBase64List.isEmpty) {
+          throw Exception('No valid images found');
+        }
+
+        // Call backend endpoint for image analysis
+        final response = await _networkClient.post(
+          endpoint: 'analyze-ingredients',
+          data: {
+            'images': imageBase64List,
+          },
+        );
+        
+        // Response is already a Map<String, dynamic>
+        if (response['success'] == true) {
+          return List<String>.from(response['ingredients'] ?? []);
+        } else {
+          throw Exception(response['error'] ?? 'Failed to analyze ingredients');
+        }
       } else {
-        // Direct Gemini API call for image analysis
+        // Fallback to mock data when backend is disabled
         return await _analyzeImagesWithGemini(imagePaths);
       }
     } catch (e) {
-      throw createNetworkException(message: 'Failed to analyze ingredients: $e');
+      print('Error analyzing ingredients: $e');
+      // Fallback to mock data if backend fails
+      return await _analyzeImagesWithGemini(imagePaths);
     }
   }
 

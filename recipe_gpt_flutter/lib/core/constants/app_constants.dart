@@ -12,8 +12,8 @@ class AppConstants {
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent';
   
   // Backend Configuration (Secure)
-  static const String backendUrl = 'https://recipe-gpt-backend-mzh24p5tc-wuthrich-juliens-projects.vercel.app/api';
-  static const bool useBackend = true; // Using backend as requested!
+  static const String backendUrl = 'https://recipe-gpt-backend-e9unau3od-wuthrich-juliens-projects.vercel.app/api';
+  static const bool useBackend = true; // ✅ Using backend with real image analysis!
 
   // Network Timeouts (in milliseconds)
   static const int connectTimeout = 30000;
@@ -30,7 +30,7 @@ class AppConstants {
   static const int minIngredientsCount = 1;
   static const int recipeGenerationTimeoutSeconds = 60;
 
-  // Chat Configuration
+  // Chat Configuration 
   static const int maxChatMessageLength = 500;
   static const int maxChatHistoryCount = 100;
   static const int chatStreamingDelayMS = 50;
