@@ -68,6 +68,30 @@ class NetworkClient {
     }
   }
 
+  /// Makes a raw POST request to any URL (for direct API calls)
+  Future<Map<String, dynamic>> postRaw({
+    required String url,
+    required Map<String, dynamic> data,
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final response = await _dio.post(
+        url,
+        data: jsonEncode(data),
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            ...?headers,
+          },
+        ),
+      );
+      
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      throw createNetworkException(message: 'Raw request failed: $e');
+    }
+  }
+
   /// Makes a streaming POST request
   Stream<String> postStream({
     required Map<String, dynamic> data,

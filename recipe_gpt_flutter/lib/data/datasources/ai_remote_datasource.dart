@@ -3,12 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../../config/app_config.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/errors/network_exceptions.dart';
 import '../../core/network/network_client.dart';
 import '../models/ingredient_model.dart';
 import '../models/recipe_model.dart';
 import '../models/chat_message_model.dart';
-import '../../core/constants/app_constants.dart';
-import '../../core/errors/network_exceptions.dart';
 import '../../domain/entities/ingredient.dart';
 
 /// Abstract interface for AI remote data source
@@ -32,7 +33,7 @@ abstract class AIRemoteDataSource {
   Future<bool> testConnection();
 
   /// Analyzes ingredients from images
-  Future<List<String>> analyzeIngredientsFromImages({
+  Future<List<Ingredient>> analyzeIngredientsFromImages({
     required List<String> imagePaths,
   });
 }
@@ -170,7 +171,7 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
 
   /// Analyzes ingredients from images
   @override
-  Future<List<String>> analyzeIngredientsFromImages({
+  Future<List<Ingredient>> analyzeIngredientsFromImages({
     required List<String> imagePaths,
   }) async {
     try {
@@ -201,40 +202,164 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         
         // Response is already a Map<String, dynamic>
         if (response['success'] == true) {
-          return List<String>.from(response['ingredients'] ?? []);
+          final List<dynamic> ingredientsData = response['ingredients'] ?? [];
+          return ingredientsData.map((item) {
+            if (item is Map<String, dynamic>) {
+              return Ingredient(
+                name: item['name']?.toString() ?? 'Unknown ingredient',
+                quantity: item['quantity']?.toString() ?? '1',
+                unit: item['unit']?.toString() ?? 'piece',
+              );
+            } else {
+              // Fallback for string items
+              return Ingredient(
+                name: item.toString(),
+                quantity: '1',
+                unit: 'piece',
+              );
+            }
+          }).toList();
         } else {
           throw Exception(response['error'] ?? 'Failed to analyze ingredients');
         }
       } else {
-        // Fallback to mock data when backend is disabled
+        // Direct Gemini API call for image analysis
         return await _analyzeImagesWithGemini(imagePaths);
       }
     } catch (e) {
       print('Error analyzing ingredients: $e');
-      // Fallback to mock data if backend fails
+      // Fallback to direct API if backend fails
       return await _analyzeImagesWithGemini(imagePaths);
     }
   }
 
-  /// Analyzes images directly with Gemini API
-  Future<List<String>> _analyzeImagesWithGemini(List<String> imagePaths) async {
+  /// Analyzes images directly with Gemini Vision API
+  Future<List<Ingredient>> _analyzeImagesWithGemini(List<String> imagePaths) async {
     try {
-      // For now, return mock ingredients since image analysis requires more complex setup
-      // This is a temporary solution until we implement proper vision API
-      await Future.delayed(const Duration(seconds: 2)); // Simulate processing
+      // Convert images to base64
+      final List<Map<String, dynamic>> imageParts = [];
       
-      // Return some mock ingredients based on common food items
-      return [
-        'chicken breast',
-        'onion',
-        'garlic',
-        'tomato',
-        'bell pepper',
-        'olive oil',
-        'salt',
-        'black pepper',
+      for (final imagePath in imagePaths) {
+        final File imageFile = File(imagePath);
+        if (await imageFile.exists()) {
+          final List<int> imageBytes = await imageFile.readAsBytes();
+          final String base64Image = base64Encode(imageBytes);
+          
+          imageParts.add({
+            'inlineData': {
+              'mimeType': 'image/jpeg',
+              'data': base64Image,
+            }
+          });
+        }
+      }
+      
+      if (imageParts.isEmpty) {
+        throw Exception('No valid images found');
+      }
+
+      // Prepare the Gemini Vision API request with correct format
+      final List<Map<String, dynamic>> parts = [
+        {
+          'text': 'Analyze these images of food/pantry/fridge and identify all visible food ingredients. '
+                 'For each ingredient, estimate a reasonable quantity and unit. '
+                 'Return a JSON array of ingredient objects with this exact format: '
+                 '[{"name": "chicken breast", "quantity": "2", "unit": "pieces"}, {"name": "onion", "quantity": "1", "unit": "medium"}, {"name": "garlic", "quantity": "3", "unit": "cloves"}]. '
+                 'Only include actual food ingredients, not containers, utensils, or non-food items. '
+                 'Be specific about ingredients and provide realistic quantities. '
+                 'Common units: pieces, cloves, cups, tablespoons, teaspoons, grams, ounces, pounds, medium, large, small. '
+                 'Return ONLY the JSON array, no additional text.'
+        }
       ];
+      parts.addAll(imageParts);
+
+      final requestBody = {
+        'contents': [{
+          'parts': parts
+        }],
+        'generationConfig': {
+          'temperature': 0.1,
+          'topK': 32,
+          'topP': 0.95,
+          'maxOutputTokens': 1024 * 4,
+        }
+      };
+
+      // Make direct call to Gemini Vision API with correct endpoint
+      final response = await _networkClient.postRaw(
+        url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${AppConfig.geminiApiKey}',
+        data: requestBody,
+      );
+
+      // Parse the response
+      String? generatedText;
+      if (response['candidates'] != null && 
+          response['candidates'].length > 0 &&
+          response['candidates'][0]['content'] != null &&
+          response['candidates'][0]['content']['parts'] != null &&
+          response['candidates'][0]['content']['parts'].length > 0) {
+        generatedText = response['candidates'][0]['content']['parts'][0]['text'];
+      }
+      
+      if (generatedText == null) {
+        throw Exception('No response from Gemini API');
+      }
+
+      // Extract ingredients from JSON response
+      List<Ingredient> ingredients = [];
+      try {
+        // Try to find JSON array in the response
+        final jsonMatch = RegExp(r'\[.*\]', dotAll: true).firstMatch(generatedText);
+        if (jsonMatch != null) {
+          final jsonString = jsonMatch.group(0);
+          final List<dynamic> parsed = jsonDecode(jsonString!);
+          ingredients = parsed.map((item) {
+            if (item is Map<String, dynamic>) {
+              return Ingredient(
+                name: item['name']?.toString() ?? 'Unknown ingredient',
+                quantity: item['quantity']?.toString() ?? '1',
+                unit: item['unit']?.toString() ?? 'piece',
+              );
+            } else {
+              // Fallback for string items
+              return Ingredient(
+                name: item.toString(),
+                quantity: '1',
+                unit: 'piece',
+              );
+            }
+          }).toList();
+        } else {
+          // Fallback: parse line by line and create basic ingredients
+          final lines = generatedText.split('\n')
+              .where((line) => line.trim().isNotEmpty)
+              .map((line) => line.replaceAll(RegExp(r'^[-*•]\s*'), '').trim())
+              .where((line) => line.isNotEmpty)
+              .toList();
+          ingredients = lines.map((name) => Ingredient(
+            name: name,
+            quantity: '1',
+            unit: 'piece',
+          )).toList();
+        }
+      } catch (parseError) {
+        // Last fallback: split by lines and create basic ingredients
+        final lines = generatedText.split('\n')
+            .where((line) => line.trim().isNotEmpty)
+            .map((line) => line.replaceAll(RegExp(r'^[-*•]\s*'), '').trim())
+            .where((line) => line.isNotEmpty)
+            .toList();
+        ingredients = lines.map((name) => Ingredient(
+          name: name,
+          quantity: '1',
+          unit: 'piece',
+        )).toList();
+      }
+
+      return ingredients.isNotEmpty ? ingredients : [Ingredient(name: 'No ingredients detected', quantity: '0', unit: 'none')];
+      
     } catch (e) {
+      print('Error in direct Gemini image analysis: $e');
       throw createNetworkException(message: 'Failed to analyze images: $e');
     }
   }
