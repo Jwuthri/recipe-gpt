@@ -7,6 +7,8 @@ import '../../core/network/network_client.dart';
 import '../models/ingredient_model.dart';
 import '../models/recipe_model.dart';
 import '../models/chat_message_model.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/errors/network_exceptions.dart';
 
 /// Abstract interface for AI remote data source
 abstract class AIRemoteDataSource {
@@ -15,7 +17,7 @@ abstract class AIRemoteDataSource {
 
   /// Generates recipe with streaming support
   Stream<String> generateRecipeStream({
-    required List<IngredientModel> ingredients,
+    required List<Map<String, String>> ingredients,
     required String styleId,
   });
 
@@ -88,44 +90,35 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
     }
   }
 
-  @override
+  /// Generate recipe with streaming
   Stream<String> generateRecipeStream({
-    required List<IngredientModel> ingredients,
+    required List<Map<String, String>> ingredients,
     required String styleId,
   }) async* {
+         if (ingredients.isEmpty) {
+       throw createNetworkException(message: 'No ingredients provided');
+     }
+
     try {
-      if (ingredients.isEmpty) {
-        throw Exception('No ingredients provided');
-      }
-
-      // Create recipe generation prompt
-      final prompt = _createRecipePrompt(ingredients, styleId);
-
-      // Create request payload
       final requestData = {
-        'contents': [
-          {
-            'parts': [
-              {'text': prompt}
-            ]
-          }
-        ],
-        'generationConfig': {
-          'maxOutputTokens': 2048 * 4,
-          'temperature': 0.33,
-        },
+        'ingredients': ingredients,
+        'styleId': styleId,
       };
 
-      // Stream the response
-      await for (final chunk in _networkClient.postStream(data: requestData)) {
-        yield chunk;
+      if (AppConstants.useBackend) {
+        // Use secure backend
+        yield* _networkClient.postStream(data: requestData);
+      } else {
+        // Direct Gemini API call (fallback)
+        final geminiRequest = _buildGeminiRequest(ingredients, styleId);
+        yield* _networkClient.postStream(data: geminiRequest);
       }
     } catch (e) {
-      throw Exception('Failed to generate recipe: $e');
+      throw createNetworkException(message: 'Failed to generate recipe: $e');
     }
   }
 
-  @override
+  /// Generates chat response with streaming support
   Stream<String> generateChatResponseStream({
     required String prompt,
     List<ChatMessageModel>? conversationHistory,
@@ -192,56 +185,30 @@ Return ONLY the JSON array, no additional text.
 ''';
   }
 
-  /// Creates recipe generation prompt based on style
-  String _createRecipePrompt(List<IngredientModel> ingredients, String styleId) {
-    final ingredientList = ingredients
-        .map((ing) => '${ing.quantity} ${ing.unit} ${ing.name}')
+  /// Build Gemini API request format
+  Map<String, dynamic> _buildGeminiRequest(
+    List<Map<String, String>> ingredients,
+    String styleId,
+  ) {
+    final ingredientText = ingredients
+        .map((ing) => '${ing['quantity']} ${ing['unit']} ${ing['name']}')
         .join(', ');
 
-    final stylePrompts = {
-      'high-protein': 'Focus on protein-rich preparation methods, include protein content per serving, and suggest high-protein variations.',
-      'vegan': 'Use only plant-based ingredients and cooking methods. Ensure no animal products are used. Include nutritional info for vegans.',
-      'keto': 'Create a low-carb, high-fat recipe. Limit carbs to under 20g per serving. Include net carb count.',
-      'mediterranean': 'Use Mediterranean herbs, olive oil, and cooking techniques. Include fresh herbs and healthy fats.',
-      'comfort': 'Create a hearty, satisfying comfort food recipe with rich flavors and warming spices.',
-      'quick': 'Focus on quick cooking methods under 30 minutes. Include prep and cook times for each step.',
+    return {
+      'contents': [{
+        'parts': [{
+          'text': 'Generate a recipe using these ingredients: $ingredientText. '
+                  'Style: $styleId. Please provide a complete recipe with ingredients, '
+                  'instructions, and cooking details in markdown format.'
+        }]
+      }],
+      'generationConfig': {
+        'temperature': 0.7,
+        'topK': 40,
+        'topP': 0.95,
+        'maxOutputTokens': 2048,
+      }
     };
-
-    final styleInstruction = stylePrompts[styleId] ?? '';
-
-    return '''
-Create a delicious ${_getStyleName(styleId)} recipe with: $ingredientList
-
-$styleInstruction
-
-Format:
-# ${_getStyleIcon(styleId)} [Recipe Name]
-⏱️ Prep: X min | Cook: X min | Serves: X
-
-## Ingredients
-- List with measurements
-
-## Instructions
-1. Clear step-by-step directions (3-5 steps)
-2. Include temperatures and timing
-
-## 🍳Nutritional information:
-| Nutrient | Amount |
-|----------|--------|
-| Calories | 450    |
-| Protein  | 25g    |
-| Carbs    | 35g    |
-| Fat      | 20g    |
-| Sugar    | 8g     |
-| Fiber    | 5g     |
-| Sodium   | 650mg  |
-
-## Tips
-- 2-3 cooking tips
-- Substitutions if needed
-
-Keep it concise but complete!
-''';
   }
 
   /// Builds chat prompt with conversation context

@@ -14,7 +14,7 @@ class NetworkClient {
 
   NetworkClient(this._dio);
 
-  /// Get Gemini API key from environment
+  /// Get Gemini API key from environment (for backward compatibility)
   String get _apiKey {
     final key = dotenv.env['GEMINI_API_KEY'];
     if (key == null || key.isEmpty) {
@@ -23,18 +23,29 @@ class NetworkClient {
     return key;
   }
 
-  /// Makes a standard POST request to Gemini API
+  /// Makes a standard POST request
   Future<Map<String, dynamic>> post({
     required String endpoint,
     required Map<String, dynamic> data,
     Map<String, String>? headers,
   }) async {
     try {
-      final url = '${AppConstants.geminiApiUrl}?key=$_apiKey';
+      String url;
+      Map<String, dynamic> requestData;
+      
+      if (AppConstants.useBackend) {
+        // Use secure backend
+        url = '${AppConstants.backendUrl}/$endpoint';
+        requestData = data;
+      } else {
+        // Direct API call (fallback)
+        url = '${AppConstants.geminiApiUrl}?key=$_apiKey';
+        requestData = data;
+      }
       
       final response = await _dio.post(
         url,
-        data: jsonEncode(data),
+        data: jsonEncode(requestData),
         options: Options(
           headers: {
             'Content-Type': 'application/json',
@@ -57,11 +68,54 @@ class NetworkClient {
     }
   }
 
-  /// Makes a streaming POST request to Gemini API
+  /// Makes a streaming POST request
   Stream<String> postStream({
     required Map<String, dynamic> data,
     Map<String, String>? headers,
   }) async* {
+    if (AppConstants.useBackend) {
+      // Use secure backend streaming
+      yield* _streamFromBackend(data, headers);
+    } else {
+      // Direct API streaming (fallback)
+      yield* _streamFromGemini(data, headers);
+    }
+  }
+
+  /// Stream from secure backend
+  Stream<String> _streamFromBackend(
+    Map<String, dynamic> data,
+    Map<String, String>? headers,
+  ) async* {
+    try {
+      final response = await _dio.post(
+        '${AppConstants.backendUrl}/stream-recipe',
+        data: jsonEncode(data),
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            ...?headers,
+          },
+          responseType: ResponseType.stream,
+        ),
+      );
+
+      final stream = response.data.stream as Stream<Uint8List>;
+      
+      await for (final chunk in stream) {
+        final text = utf8.decode(chunk);
+        yield text;
+      }
+    } catch (e) {
+      throw createNetworkException(message: 'Streaming failed: $e');
+    }
+  }
+
+  /// Stream from Gemini directly (fallback)
+  Stream<String> _streamFromGemini(
+    Map<String, dynamic> data,
+    Map<String, String>? headers,
+  ) async* {
     try {
       final url = '${AppConstants.geminiStreamUrl}?key=$_apiKey&alt=sse';
       
@@ -71,190 +125,57 @@ class NetworkClient {
         options: Options(
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'text/event-stream',
-            'Cache-Control': 'no-cache',
             ...?headers,
           },
           responseType: ResponseType.stream,
-          receiveTimeout: const Duration(milliseconds: 120000), // 2 minutes for streaming
-          sendTimeout: const Duration(milliseconds: 30000),
-          receiveDataWhenStatusError: true,
         ),
       );
 
-      if (response.statusCode == 200) {
-        final stream = response.data as ResponseBody;
-        
-        await for (final chunk in _parseSSEStream(stream.stream)) {
-          yield chunk;
-        }
-      } else {
-        throw createNetworkException(
-          message: 'Streaming request failed with status: ${response.statusCode}',
-          statusCode: response.statusCode,
-        );
-      }
-    } on DioException catch (e) {
-      throw _handleDioException(e);
-    } catch (e) {
-      throw createNetworkException(message: 'Streaming error: $e', type: 'streaming');
-    }
-  }
-
-  /// Parses Server-Sent Events (SSE) stream
-  Stream<String> _parseSSEStream(Stream<Uint8List> byteStream) async* {
-    String buffer = '';
-    
-    try {
-      await for (final bytes in byteStream) {
-        final chunk = utf8.decode(bytes, allowMalformed: true);
-        buffer += chunk;
-        
-        // Process complete lines
-        final lines = buffer.split('\n');
-        buffer = lines.removeLast(); // Keep incomplete line in buffer
+      final stream = response.data.stream as Stream<Uint8List>;
+      
+      await for (final chunk in stream) {
+        final text = utf8.decode(chunk);
+        final lines = text.split('\n');
         
         for (final line in lines) {
-          final trimmedLine = line.trim();
-          
-          if (trimmedLine.startsWith('data: ')) {
-            final data = trimmedLine.substring(6).trim();
-            
-            // Skip keep-alive messages and empty data
-            if (data == '[DONE]' || data.isEmpty) {
-              if (data == '[DONE]') return;
-              continue;
-            }
+          if (line.startsWith('data: ')) {
+            final data = line.substring(6);
+            if (data.trim() == '[DONE]') continue;
             
             try {
-              final jsonData = jsonDecode(data);
-              
-              // Extract content from Gemini response structure
-              if (jsonData['candidates'] != null && 
-                  jsonData['candidates'].isNotEmpty) {
-                final candidate = jsonData['candidates'][0];
-                if (candidate['content'] != null && 
-                    candidate['content']['parts'] != null &&
-                    candidate['content']['parts'].isNotEmpty) {
-                  final text = candidate['content']['parts'][0]['text'];
-                  if (text != null && text.toString().isNotEmpty) {
-                    // Yield each chunk immediately for real-time streaming
-                    yield text.toString();
-                  }
-                }
+              final json = jsonDecode(data);
+              final content = json['candidates']?[0]?['content']?['parts']?[0]?['text'];
+              if (content != null) {
+                yield content as String;
               }
             } catch (e) {
-              // Skip malformed JSON chunks but continue processing
-              print('[SSE] Failed to parse chunk: $e, data: $data');
+              // Skip malformed JSON
               continue;
             }
           }
         }
       }
     } catch (e) {
-      print('[SSE] Stream processing error: $e');
-      rethrow;
+      throw createNetworkException(message: 'Streaming failed: $e');
     }
   }
 
-  /// Handles Dio exceptions and converts them to NetworkException
-  NetworkException _handleDioException(DioException e) {
-    switch (e.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-        return const TimeoutException();
-      
-      case DioExceptionType.connectionError:
-        return const NoInternetException();
-      
-      case DioExceptionType.badResponse:
-        final statusCode = e.response?.statusCode;
-        final message = e.response?.data?['error']?['message'] ?? 
-                        'HTTP $statusCode error';
-        return createNetworkException(message: message, statusCode: statusCode);
-      
-      case DioExceptionType.cancel:
-        return createNetworkException(message: 'Request cancelled');
-      
-      case DioExceptionType.unknown:
-      default:
-        return createNetworkException(message: e.message ?? AppConstants.unknownErrorMessage);
-    }
-  }
-
-  /// Uploads image for analysis
-  Future<Map<String, dynamic>> uploadImage({
-    required String base64Data,
-    required String mimeType,
-    Map<String, String>? headers,
-  }) async {
-    try {
-      final data = {
-        'contents': [
-          {
-            'parts': [
-              {
-                'inline_data': {
-                  'mime_type': mimeType,
-                  'data': base64Data,
-                }
-              }
-            ]
-          }
-        ],
-        'generationConfig': {
-          'maxOutputTokens': 2048 * 4,
-          'temperature': 0.33,
-        },
-      };
-
-      return await post(
-        endpoint: '',
-        data: data,
-        headers: headers,
-      );
-    } catch (e) {
-      throw createNetworkException(message: 'Image upload failed: $e');
-    }
-  }
-
-  /// Converts image file to base64
-  Future<Map<String, String>> imageToBase64(String imagePath) async {
-    try {
-      // This would typically read the file and convert to base64
-      // For now, return a placeholder
-      return {
-        'base64Data': '',
-        'mimeType': 'image/jpeg',
-      };
-    } catch (e) {
-      throw createNetworkException(message: 'Failed to convert image: $e');
-    }
-  }
-
-  /// Validates API configuration
+  /// Check if API is configured
   bool get isConfigured {
-    try {
+    if (AppConstants.useBackend) {
+      return AppConstants.backendUrl.isNotEmpty;
+    } else {
       return _apiKey.isNotEmpty;
-    } catch (_) {
-      return false;
     }
   }
 
-  /// Tests network connectivity
-  Future<bool> testConnection() async {
-    try {
-      await _dio.get(
-        'https://www.google.com',
-        options: Options(
-          sendTimeout: const Duration(seconds: 5),
-          receiveTimeout: const Duration(seconds: 5),
-        ),
-      );
-      return true;
-    } catch (_) {
-      return false;
-    }
+  /// Get configuration status
+  Map<String, dynamic> get configStatus {
+    return {
+      'useBackend': AppConstants.useBackend,
+      'backendUrl': AppConstants.backendUrl,
+      'hasApiKey': AppConstants.useBackend ? true : _apiKey.isNotEmpty,
+      'isConfigured': isConfigured,
+    };
   }
 } 
