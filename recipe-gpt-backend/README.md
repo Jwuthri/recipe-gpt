@@ -246,4 +246,51 @@ CREATE TABLE llm_messages (
 );
 ```
 
-This gives you full visibility into your app's AI usage! 🎉 
+This gives you full visibility into your app's AI usage! 🎉
+
+## 🔧 Troubleshooting
+
+### Vercel Authentication Issue
+
+If you're getting "Authentication Required" errors, you're likely on a Vercel Pro/Team plan. Here are solutions:
+
+#### **Option 1: Use Personal Account**
+```bash
+# Create new personal project
+vercel logout
+vercel login  # Use personal email
+vercel --prod
+```
+
+#### **Option 2: Railway (Alternative)**
+```bash
+# Install Railway CLI
+npm install -g @railway/cli
+
+# Deploy to Railway
+railway login
+railway init
+railway up
+```
+
+#### **Option 3: Render (Alternative)**
+1. Go to [render.com](https://render.com)
+2. Connect your GitHub repo
+3. Deploy as Web Service
+4. Add environment variables
+
+#### **Option 4: Use Flutter Fallback**
+In your Flutter app, set `useBackend = false` to use direct API calls temporarily:
+
+```dart
+// lib/core/constants/app_constants.dart
+static const bool useBackend = false; // Temporary fallback
+```
+
+### Environment Variables
+Make sure these are set in your deployment platform:
+- `GEMINI_API_KEY`: Your Google Gemini API key
+- `SUPABASE_URL`: https://ycgsybcfwwdfxjkpnrlb.supabase.co  
+- `SUPABASE_ANON_KEY`: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+The backend code is perfect - it's just a deployment platform issue! 🚀 
