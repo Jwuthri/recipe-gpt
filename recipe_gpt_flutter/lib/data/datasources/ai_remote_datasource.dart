@@ -174,16 +174,9 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
   }) async {
     try {
       if (AppConstants.useBackend) {
-        // Backend endpoint for image analysis
-        final response = await _networkClient.post(
-          endpoint: '/analyze-ingredients',
-          data: {
-            'images': imagePaths,
-          },
-        );
-        
-        // Response is already a Map<String, dynamic>
-        return List<String>.from(response['ingredients'] ?? []);
+        // For now, use mock data since image analysis endpoint isn't implemented yet
+        // TODO: Implement /analyze-ingredients endpoint in backend
+        return await _analyzeImagesWithGemini(imagePaths);
       } else {
         // Direct Gemini API call for image analysis
         return await _analyzeImagesWithGemini(imagePaths);
