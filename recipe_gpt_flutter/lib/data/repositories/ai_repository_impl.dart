@@ -31,10 +31,10 @@ class AIRepositoryImpl implements AIRepository {
       'unit': ingredient.unit,
     }).toList();
 
-    yield* _remoteDataSource.generateRecipeStream(
+      yield* _remoteDataSource.generateRecipeStream(
       ingredients: ingredientsData,
-      styleId: styleId,
-    );
+        styleId: styleId,
+      );
   }
 
   @override

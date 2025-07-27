@@ -75,6 +75,10 @@ class NetworkClient {
     Map<String, String>? headers,
   }) async {
     try {
+      print('Making raw POST request to: ${url.substring(0, url.indexOf('?'))}');
+      print('Request data keys: ${data.keys.toList()}');
+      print('Request headers: ${headers ?? {}}');
+      
       final response = await _dio.post(
         url,
         data: jsonEncode(data),
@@ -86,8 +90,10 @@ class NetworkClient {
         ),
       );
       
+      print('Response status: ${response.statusCode}');
       return response.data as Map<String, dynamic>;
     } catch (e) {
+      print('Raw request error: $e');
       throw createNetworkException(message: 'Raw request failed: $e');
     }
   }
@@ -156,7 +162,7 @@ class NetworkClient {
       );
 
       final stream = response.data.stream as Stream<Uint8List>;
-      
+    
       await for (final chunk in stream) {
         final text = utf8.decode(chunk);
         final lines = text.split('\n');

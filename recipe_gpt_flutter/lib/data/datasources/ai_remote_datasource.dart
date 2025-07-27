@@ -258,24 +258,22 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         throw Exception('No valid images found');
       }
 
-      // Prepare the Gemini Vision API request with correct format
-      final List<Map<String, dynamic>> parts = [
-        {
-          'text': 'Analyze these images of food/pantry/fridge and identify all visible food ingredients. '
-                 'For each ingredient, estimate a reasonable quantity and unit. '
-                 'Return a JSON array of ingredient objects with this exact format: '
-                 '[{"name": "chicken breast", "quantity": "2", "unit": "pieces"}, {"name": "onion", "quantity": "1", "unit": "medium"}, {"name": "garlic", "quantity": "3", "unit": "cloves"}]. '
-                 'Only include actual food ingredients, not containers, utensils, or non-food items. '
-                 'Be specific about ingredients and provide realistic quantities. '
-                 'Common units: pieces, cloves, cups, tablespoons, teaspoons, grams, ounces, pounds, medium, large, small. '
-                 'Return ONLY the JSON array, no additional text.'
-        }
-      ];
-      parts.addAll(imageParts);
+      // Prepare the text part
+      final textPart = {
+        'text': 'Analyze these images of food/pantry/fridge and identify all visible food ingredients. '
+               'For each ingredient, estimate a reasonable quantity and unit. '
+               'Return a JSON array of ingredient objects with this exact format: '
+               '[{"name": "chicken breast", "quantity": "2", "unit": "pieces"}, {"name": "onion", "quantity": "1", "unit": "medium"}, {"name": "garlic", "quantity": "3", "unit": "cloves"}]. '
+               'Only include actual food ingredients, not containers, utensils, or non-food items. '
+               'Be specific about ingredients and provide realistic quantities. '
+               'Common units: pieces, cloves, cups, tablespoons, teaspoons, grams, ounces, pounds, medium, large, small. '
+               'Return ONLY the JSON array, no additional text.'
+      };
 
+      // Prepare the request matching exactly what works in backend
       final requestBody = {
         'contents': [{
-          'parts': parts
+          'parts': [textPart, ...imageParts]
         }],
         'generationConfig': {
           'temperature': 0.1,
@@ -285,9 +283,21 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         }
       };
 
+      // Get API key safely
+      String apiKey;
+      try {
+        apiKey = AppConfig.geminiApiKey;
+      } catch (e) {
+        throw Exception('Gemini API key not configured: $e');
+      }
+
+      // Debug: Print request structure (only in debug mode)
+      print('Making Gemini API request with ${imageParts.length} images');
+      print('Request structure: ${requestBody.keys}');
+      
       // Make direct call to Gemini Vision API with correct endpoint
       final response = await _networkClient.postRaw(
-        url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${AppConfig.geminiApiKey}',
+        url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey',
         data: requestBody,
       );
 

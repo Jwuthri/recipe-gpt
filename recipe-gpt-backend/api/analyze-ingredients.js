@@ -19,17 +19,24 @@ export default async function handler(req, res) {
   const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
   const startTime = Date.now();
 
+  console.log(`[${new Date().toISOString()}] New request from ${clientIP}`);
+  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Request body keys:', Object.keys(req.body || {}));
+
   try {
     const { images } = req.body;
 
+    console.log('Images received:', images ? `${images.length} images` : 'no images');
+    
     if (!images || !Array.isArray(images) || images.length === 0) {
+      console.error('Invalid images array:', { images, type: typeof images, isArray: Array.isArray(images) });
       return res.status(400).json({ error: 'Images array is required' });
     }
 
     // Prepare image parts for Gemini Vision API
     const imageParts = images.map(imageBase64 => ({
-      inline_data: {
-        mime_type: "image/jpeg",
+      inlineData: {
+        mimeType: "image/jpeg",
         data: imageBase64.replace(/^data:image\/[a-z]+;base64,/, '') // Remove data URL prefix if present
       }
     }));
@@ -54,36 +61,61 @@ export default async function handler(req, res) {
         temperature: 0.1,
         topK: 32,
         topP: 0.95,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 1024 * 4,
       }
     };
 
-    // Make request to Gemini Vision API
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(geminiRequest)
-      }
-    );
+    console.log('Gemini request structure:', {
+      contentsLength: geminiRequest.contents.length,
+      partsLength: geminiRequest.contents[0].parts.length,
+      firstPartType: typeof geminiRequest.contents[0].parts[0],
+      firstPartKeys: Object.keys(geminiRequest.contents[0].parts[0]),
+      hasApiKey: !!process.env.GEMINI_API_KEY
+    });
 
+    // Make request to Gemini Vision API
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    console.log('Making request to Gemini API...');
+    
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(geminiRequest)
+    });
+
+    console.log('Gemini API response status:', response.status);
+    
     if (!response.ok) {
       const error = await response.text();
+      console.error('Gemini API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: error
+      });
       throw new Error(`Gemini API error: ${response.status} - ${error}`);
     }
 
     const geminiData = await response.json();
     const responseTime = Date.now() - startTime;
 
+    console.log('Gemini API response received:', {
+      responseTime: `${responseTime}ms`,
+      hasCandidates: !!geminiData.candidates,
+      candidatesLength: geminiData.candidates?.length || 0
+    });
+
     // Extract the generated text
     const generatedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!generatedText) {
+      console.error('No text in Gemini response:', geminiData);
       throw new Error('No response from Gemini API');
     }
+
+    console.log('Generated text length:', generatedText.length);
+    console.log('Generated text preview:', generatedText.substring(0, 200) + '...');
 
     // Parse the JSON response to extract ingredients
     let ingredients = [];
@@ -151,6 +183,13 @@ export default async function handler(req, res) {
       console.error('Failed to log to Supabase:', logError);
     }
 
+    console.log('Final response:', {
+      success: true,
+      ingredientsCount: ingredients.length,
+      responseTime: responseTime,
+      ingredients: ingredients.slice(0, 3) // Log first 3 ingredients
+    });
+
     return res.status(200).json({
       success: true,
       ingredients: ingredients,
@@ -159,6 +198,13 @@ export default async function handler(req, res) {
 
   } catch (error) {
     const responseTime = Date.now() - startTime;
+    
+    console.error('ERROR in analyze-ingredients:', {
+      message: error.message,
+      stack: error.stack,
+      responseTime: `${responseTime}ms`,
+      clientIP: clientIP
+    });
     
     // Log error to Supabase
     try {
