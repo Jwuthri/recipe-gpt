@@ -29,6 +29,8 @@ A beautiful, AI-powered recipe generation app built with Flutter and clean archi
 ```
 xcrun simctl list devices | grep iPhone
 xcrun simctl boot "iPhone 16 Pro"
+flutter clean
+flutter build ios --release && flutter install --release -d "00008110-00014D4E340A801E"
 ```
 
 1. **Clone and navigate**

@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: recipe-gpt-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node api/generate-recipe.js
+    envVars:
+      - key: GEMINI_API_KEY
+        value: AIzaSyDpyNrQ3UiSwcEB4PXAOaVQ1Y-NearwoI0
+      - key: SUPABASE_URL
+        value: https://ycgsybcfwwdfxjkpnrlb.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljZ3N5YmNmd3dkZnhqa3BucmxiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzI2NzE5MDcsImV4cCI6MjA0ODI0NzkwN30.NJ8IeGNvRpD6yfm7W_HLkAGAJBTkCkF0PFJelWJhXQQ 
