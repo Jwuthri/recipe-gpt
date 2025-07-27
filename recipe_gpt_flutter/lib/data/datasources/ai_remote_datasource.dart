@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/services.dart';
 
 import '../../config/app_config.dart';
 import '../../core/constants/app_constants.dart';
@@ -192,16 +194,29 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
           
           if (exists) {
             try {
-              final List<int> imageBytes = await imageFile.readAsBytes();
-              print('📊 Image bytes length: ${imageBytes.length}');
+              List<int> imageBytes = await imageFile.readAsBytes();
+              print('📊 Original image bytes length: ${imageBytes.length}');
               
               if (imageBytes.isEmpty) {
                 print('❌ Image file is empty: ${imagePath}');
                 continue;
               }
               
+              // Compress image if it's too large (>2MB)
+              if (imageBytes.length > 2 * 1024 * 1024) {
+                print('🗜️ Image too large, compressing...');
+                imageBytes = await _compressImage(imageBytes);
+                print('📉 Compressed image bytes length: ${imageBytes.length}');
+              }
+              
               final String base64Image = base64Encode(imageBytes);
               print('📝 Base64 conversion result: originalPath=$imagePath, bytesLength=${imageBytes.length}, base64Length=${base64Image.length}');
+              
+              // Final check - if still too large after compression, skip
+              if (base64Image.length > 4 * 1024 * 1024) { // 4MB limit for base64
+                print('❌ Image still too large after compression, skipping');
+                continue;
+              }
               
               imageBase64List.add(base64Image);
               print('✅ Successfully added image to base64 list');
@@ -623,5 +638,37 @@ Return ONLY the JSON array, no additional text.
       'quick': '⚡',
     };
     return styleIcons[styleId] ?? '🍳';
+  }
+
+  /// Compresses image data to reduce size for API calls
+  Future<List<int>> _compressImage(List<int> imageBytes) async {
+    try {
+      // Decode the image
+      final ui.Codec codec = await ui.instantiateImageCodec(
+        Uint8List.fromList(imageBytes),
+        targetWidth: 1024, // Resize to max 1024px width
+        targetHeight: 1024, // Resize to max 1024px height
+      );
+      final ui.FrameInfo frameInfo = await codec.getNextFrame();
+      final ui.Image image = frameInfo.image;
+
+      // Convert to bytes with compression
+      final ByteData? byteData = await image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      
+      image.dispose();
+      codec.dispose();
+      
+      if (byteData == null) {
+        throw Exception('Failed to compress image');
+      }
+      
+      return byteData.buffer.asUint8List();
+    } catch (e) {
+      print('❌ Image compression failed: $e');
+      // Return original if compression fails
+      return imageBytes;
+    }
   }
 } 
