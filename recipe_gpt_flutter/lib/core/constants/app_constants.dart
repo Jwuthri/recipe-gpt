@@ -13,7 +13,7 @@ class AppConstants {
   
   // Backend Configuration (Secure)
   static const String backendUrl = 'https://recipe-gpt-backend-1zrpn9k8g-wuthrich-juliens-projects.vercel.app/api';
-  static const bool useBackend = false; // Set to false due to Vercel auth issues
+  static const bool useBackend = false; // Disabled due to Vercel team auth
 
   // Network Timeouts (in milliseconds)
   static const int connectTimeout = 30000;
