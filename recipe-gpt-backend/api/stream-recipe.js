@@ -43,14 +43,59 @@ export default async function handler(req, res) {
     const contents = [{
       role: 'user',
       parts: [{
-        text: `Generate a recipe using these ingredients: ${ingredients.map(ing => `${ing.quantity} ${ing.unit} ${ing.name}`).join(', ')}. Style: ${styleId}. Please provide a complete recipe with ingredients, instructions, and cooking details.`
+        text: `Create a detailed recipe using these ingredients: ${ingredients.map(ing => `${ing.quantity} ${ing.unit} ${ing.name}`).join(', ')}.
+
+Recipe Style: ${styleId}
+
+Please format the response using this EXACT template:
+
+# [Recipe Title]
+
+*[Brief appetizing description in 1-2 sentences]*
+
+## 📊 Recipe Info
+- **Prep Time:** [X minutes]
+- **Cook Time:** [X minutes] 
+- **Total Time:** [X minutes]
+- **Servings:** [X servings]
+- **Difficulty:** [Easy/Medium/Hard]
+- **Cuisine:** [Type of cuisine]
+
+## 🥘 Ingredients
+${ingredients.map(ing => `- ${ing.quantity} ${ing.unit} ${ing.name}`).join('\n')}
+[Add any additional ingredients needed]
+
+## 👨‍🍳 Instructions
+1. [Detailed step-by-step instruction]
+2. [Continue with each step...]
+[Continue until recipe is complete]
+
+## 📈 Nutrition (Per Serving)
+
+| Nutrient | Amount |
+|----------|--------|
+| Calories | [X kcal] |
+| Protein | [X g] |
+| Carbohydrates | [X g] |
+| Fat | [X g] |
+| Fiber | [X g] |
+| Sugar | [X g] |
+| Sodium | [X mg] |
+
+## 💡 Chef's Tips
+- [Helpful tip or variation]
+- [Storage instructions]
+- [Serving suggestions]
+
+---
+*Enjoy your delicious ${styleId} meal!* 🍽️`
       }]
     }];
 
     const config = {
       generationConfig: {
         temperature: 0.3,
-        maxOutputTokens: 2048 * 2,
+        maxOutputTokens: 2048 * 3, // Increased for detailed template with nutrition info
       }
     };
 

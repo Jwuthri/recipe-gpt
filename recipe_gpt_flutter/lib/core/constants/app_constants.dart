@@ -14,7 +14,7 @@ class AppConstants {
   // Backend Configuration (Secure)
   static const bool useLocalBackend = false; // 🔧 Set to true for local development
   static const String localBackendUrl = 'http://192.168.1.106:3001/api';
-  static const String productionBackendUrl = 'https://recipe-gpt-backend-cczcco39h-wuthrich-juliens-projects.vercel.app/api';
+  static const String productionBackendUrl = 'https://recipe-gpt-backend-o73aieo1y-wuthrich-juliens-projects.vercel.app/api';
   static const bool useBackend = true; // ✅ Using backend with full ingredient objects!
   
   // Get the actual backend URL based on environment

@@ -228,49 +228,57 @@ class _RecipeScreenState extends State<RecipeScreen>
     buffer.writeln('${'=' * 30}');
     buffer.writeln();
     
-    // Basic info
-    if (recipe.description?.isNotEmpty == true) {
-      buffer.writeln('📝 ${recipe.description}');
-      buffer.writeln();
-    }
-    
-    if (recipe.servings != null || recipe.prepTime != null || recipe.cookTime != null) {
-      buffer.writeln('⏱️ Recipe Info:');
-      if (recipe.servings != null) {
-        buffer.writeln('• Servings: ${recipe.formattedServings}');
+    // Use the full content if available (includes nutrition table, tips, etc.)
+    if (recipe.content.isNotEmpty) {
+      buffer.writeln(recipe.content);
+    } else {
+      // Fallback to parsed fields if content is empty
+      
+      // Basic info
+      if (recipe.description?.isNotEmpty == true) {
+        buffer.writeln('📝 ${recipe.description}');
+        buffer.writeln();
       }
-      if (recipe.prepTime != null || recipe.cookTime != null) {
-        buffer.writeln('• Time: ${recipe.formattedTime}');
+      
+      if (recipe.servings != null || recipe.prepTime != null || recipe.cookTime != null) {
+        buffer.writeln('⏱️ Recipe Info:');
+        if (recipe.servings != null) {
+          buffer.writeln('• Servings: ${recipe.formattedServings}');
+        }
+        if (recipe.prepTime != null || recipe.cookTime != null) {
+          buffer.writeln('• Time: ${recipe.formattedTime}');
+        }
+        if (recipe.difficulty?.isNotEmpty == true) {
+          buffer.writeln('• Difficulty: ${recipe.difficulty}');
+        }
+        buffer.writeln();
       }
-      if (recipe.difficulty?.isNotEmpty == true) {
-        buffer.writeln('• Difficulty: ${recipe.difficulty}');
-      }
-      buffer.writeln();
-    }
-    
-    // Ingredients
-    buffer.writeln('🥘 Ingredients:');
-    for (final ingredient in recipe.ingredients) {
-      buffer.writeln('• ${ingredient.quantity} ${ingredient.unit} ${ingredient.name}');
-    }
-    buffer.writeln();
-    
-    // Instructions (if available)
-    if (recipe.instructions.isNotEmpty) {
-      buffer.writeln('👩‍🍳 Instructions:');
-      for (int i = 0; i < recipe.instructions.length; i++) {
-        buffer.writeln('${i + 1}. ${recipe.instructions[i]}');
+      
+      // Ingredients
+      buffer.writeln('🥘 Ingredients:');
+      for (final ingredient in recipe.ingredients) {
+        buffer.writeln('• ${ingredient.quantity} ${ingredient.unit} ${ingredient.name}');
       }
       buffer.writeln();
-    }
-    
-    // Tags (if available)
-    if (recipe.tags.isNotEmpty) {
-      buffer.writeln('🏷️ Tags: ${recipe.tags.join(', ')}');
-      buffer.writeln();
+      
+      // Instructions (if available)
+      if (recipe.instructions.isNotEmpty) {
+        buffer.writeln('👩‍🍳 Instructions:');
+        for (int i = 0; i < recipe.instructions.length; i++) {
+          buffer.writeln('${i + 1}. ${recipe.instructions[i]}');
+        }
+        buffer.writeln();
+      }
+      
+      // Tags (if available)
+      if (recipe.tags.isNotEmpty) {
+        buffer.writeln('🏷️ Tags: ${recipe.tags.join(', ')}');
+        buffer.writeln();
+      }
     }
     
     // Footer
+    buffer.writeln();
     buffer.writeln('${'=' * 30}');
     buffer.writeln('Made with Recipe GPT 🤖👨‍🍳');
     
