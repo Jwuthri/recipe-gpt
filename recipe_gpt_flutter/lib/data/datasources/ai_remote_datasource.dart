@@ -176,15 +176,40 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
   }) async {
     try {
       if (AppConstants.useBackend) {
+        print('🚀 Using backend for image analysis');
+        print('Backend URL: ${AppConstants.backendUrl}');
+        
         // Convert image files to base64 for backend analysis
         final List<String> imageBase64List = [];
         
         for (final imagePath in imagePaths) {
+          print('🔍 Processing image path: $imagePath');
+          
           final File imageFile = File(imagePath);
-          if (await imageFile.exists()) {
-            final List<int> imageBytes = await imageFile.readAsBytes();
-            final String base64Image = base64Encode(imageBytes);
-            imageBase64List.add(base64Image);
+          final bool exists = await imageFile.exists();
+          
+          print('📁 File exists: $exists');
+          
+          if (exists) {
+            try {
+              final List<int> imageBytes = await imageFile.readAsBytes();
+              print('📊 Image bytes length: ${imageBytes.length}');
+              
+              if (imageBytes.isEmpty) {
+                print('❌ Image file is empty: ${imagePath}');
+                continue;
+              }
+              
+              final String base64Image = base64Encode(imageBytes);
+              print('📝 Base64 conversion result: originalPath=$imagePath, bytesLength=${imageBytes.length}, base64Length=${base64Image.length}');
+              
+              imageBase64List.add(base64Image);
+              print('✅ Successfully added image to base64 list');
+            } catch (e) {
+              print('❌ Error reading image file: $e');
+            }
+          } else {
+            print('❌ Image file not found: ${imagePath}');
           }
         }
         
@@ -192,6 +217,8 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
           throw Exception('No valid images found');
         }
 
+        print('📤 Calling backend with ${imageBase64List.length} images');
+        
         // Call backend endpoint for image analysis
         final response = await _networkClient.post(
           endpoint: 'analyze-ingredients',
@@ -199,6 +226,8 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
             'images': imageBase64List,
           },
         );
+        
+        print('✅ Backend response received: ${response.keys}');
         
         // Response is already a Map<String, dynamic>
         if (response['success'] == true) {
@@ -227,7 +256,8 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         return await _analyzeImagesWithGemini(imagePaths);
       }
     } catch (e) {
-      print('Error analyzing ingredients: $e');
+      print('❌ Backend call failed - Error analyzing ingredients: $e');
+      print('🔄 Falling back to direct Gemini API...');
       // Fallback to direct API if backend fails
       return await _analyzeImagesWithGemini(imagePaths);
     }
@@ -276,9 +306,7 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
           'parts': [textPart, ...imageParts]
         }],
         'generationConfig': {
-          'temperature': 0.1,
-          'topK': 32,
-          'topP': 0.95,
+          'temperature': 0.3,
           'maxOutputTokens': 1024 * 4,
         }
       };
@@ -417,10 +445,8 @@ Return ONLY the JSON array, no additional text.
         }]
       }],
       'generationConfig': {
-        'temperature': 0.7,
-        'topK': 40,
-        'topP': 0.95,
-        'maxOutputTokens': 2048,
+        'temperature': 0.3,
+        'maxOutputTokens': 2048 * 2,
       }
     };
   }

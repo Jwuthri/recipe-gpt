@@ -37,11 +37,15 @@ class NetworkClient {
         // Use secure backend
         url = '${AppConstants.backendUrl}/$endpoint';
         requestData = data;
+        print('🌐 Using backend URL: $url');
       } else {
         // Direct API call (fallback)
         url = '${AppConstants.geminiApiUrl}?key=$_apiKey';
         requestData = data;
+        print('🌐 Using direct API URL: ${url.substring(0, url.indexOf('?'))}');
       }
+      
+      print('📋 Request data keys: ${data.keys.toList()}');
       
       final response = await _dio.post(
         url,
@@ -53,6 +57,8 @@ class NetworkClient {
           },
         ),
       );
+      
+      print('✅ Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         return response.data as Map<String, dynamic>;
@@ -63,6 +69,7 @@ class NetworkClient {
         );
       }
     } catch (e) {
+      print('❌ Network error in post(): $e');
       if (e is NetworkException) rethrow;
       throw createNetworkException(message: 'Unexpected error: $e');
     }

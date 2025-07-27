@@ -12,8 +12,13 @@ class AppConstants {
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent';
   
   // Backend Configuration (Secure)
-  static const String backendUrl = 'https://recipe-gpt-backend-qom384dhk-wuthrich-juliens-projects.vercel.app/api';
+  static const bool useLocalBackend = true; // 🔧 Set to true for local development
+  static const String localBackendUrl = 'http://192.168.1.106:3001/api';
+  static const String productionBackendUrl = 'https://recipe-gpt-backend-fieftvj3u-wuthrich-juliens-projects.vercel.app/api';
   static const bool useBackend = true; // ✅ Using backend with full ingredient objects!
+  
+  // Get the actual backend URL based on environment
+  static String get backendUrl => useLocalBackend ? localBackendUrl : productionBackendUrl;
 
   // Network Timeouts (in milliseconds)
   static const int connectTimeout = 30000;

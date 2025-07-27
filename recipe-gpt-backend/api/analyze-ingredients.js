@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI } from '@google/genai';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -7,6 +8,11 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -33,13 +39,92 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Images array is required' });
     }
 
-    // Prepare image parts for Gemini Vision API
-    const imageParts = images.map(imageBase64 => ({
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: imageBase64.replace(/^data:image\/[a-z]+;base64,/, '') // Remove data URL prefix if present
+    // Initialize Google GenAI
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY environment variable is not set');
+    }
+    
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+    });
+
+    console.log('Using Google GenAI SDK with model: gemini-2.5-flash');
+
+    // Prepare image parts for Gemini Vision API with validation
+    const imageParts = [];
+    
+    for (let i = 0; i < images.length; i++) {
+      const imageBase64 = images[i];
+      console.log(`Processing image ${i + 1}:`, {
+        length: imageBase64.length,
+        startsWithData: imageBase64.startsWith('data:')
+      });
+      
+      // Clean the base64 data
+      let cleanBase64 = imageBase64;
+      
+      // Remove data URL prefix if present
+      if (cleanBase64.startsWith('data:')) {
+        const commaIndex = cleanBase64.indexOf(',');
+        if (commaIndex !== -1) {
+          cleanBase64 = cleanBase64.substring(commaIndex + 1);
+        }
       }
-    }));
+      
+      // Validate base64 format
+      if (!cleanBase64) {
+        console.warn(`Image ${i + 1} is empty or null`);
+        continue;
+      }
+      
+      if (cleanBase64.length < 50) {
+        console.warn(`Image ${i + 1} appears to be too small: length=${cleanBase64.length}`);
+        continue;
+      }
+      
+      // Check if it's valid base64
+      try {
+        // Try to decode to validate
+        const buffer = Buffer.from(cleanBase64, 'base64');
+        
+        // Detect MIME type from image header
+        let mimeType = "image/jpeg"; // default
+        if (buffer.length >= 8) {
+          const header = buffer.toString('hex', 0, 8).toLowerCase();
+          if (header.startsWith('89504e47')) {
+            mimeType = "image/png";
+          } else if (header.startsWith('ffd8ff')) {
+            mimeType = "image/jpeg";
+          } else if (header.startsWith('47494638')) {
+            mimeType = "image/gif";
+          } else if (header.startsWith('52494646')) {
+            mimeType = "image/webp";
+          }
+        }
+        
+        console.log(`✅ Image ${i + 1} validation passed:`, {
+          mimeType: mimeType,
+          base64Length: cleanBase64.length,
+          bufferSize: buffer.length
+        });
+        
+        imageParts.push({
+          inlineData: {
+            mimeType: mimeType,
+            data: cleanBase64
+          }
+        });
+      } catch (error) {
+        console.error(`❌ Image ${i + 1} failed base64 validation:`, error.message);
+        continue;
+      }
+    }
+    
+    if (imageParts.length === 0) {
+      throw new Error('No valid images found after processing');
+    }
+    
+    console.log(`Successfully processed ${imageParts.length} out of ${images.length} images`);
 
     const textPart = {
       text: `Analyze these images of food/pantry/fridge and identify all visible food ingredients. 
@@ -52,65 +137,67 @@ export default async function handler(req, res) {
       Return ONLY the JSON array, no additional text.`
     };
 
-    // Prepare the request for Gemini Vision API
-    const geminiRequest = {
-      contents: [{
-        parts: [textPart, ...imageParts]
-      }],
+    console.log('Prepared request with:', {
+      textPartLength: textPart.text.length,
+      imagePartsCount: imageParts.length,
+      hasApiKey: !!process.env.GEMINI_API_KEY
+    });
+
+    // Make request using Google GenAI SDK with correct structure
+    console.log('Making request to Gemini API using official SDK...');
+    
+    const contents = [{
+      role: 'user',
+      parts: [
+        textPart,
+        ...imageParts
+      ]
+    }];
+
+    const config = {
       generationConfig: {
         temperature: 0.1,
-        topK: 32,
-        topP: 0.95,
         maxOutputTokens: 1024 * 4,
       }
     };
 
-    console.log('Gemini request structure:', {
-      contentsLength: geminiRequest.contents.length,
-      partsLength: geminiRequest.contents[0].parts.length,
-      firstPartType: typeof geminiRequest.contents[0].parts[0],
-      firstPartKeys: Object.keys(geminiRequest.contents[0].parts[0]),
-      hasApiKey: !!process.env.GEMINI_API_KEY
-    });
-
-    // Make request to Gemini Vision API
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
-    console.log('Making request to Gemini API...');
-    
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(geminiRequest)
-    });
-
-    console.log('Gemini API response status:', response.status);
-    
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('Gemini API error:', {
-        status: response.status,
-        statusText: response.statusText,
-        error: error
+    let result;
+    try {
+      console.log('Making API call with:', {
+        model: 'gemini-2.5-flash',
+        contentsLength: contents.length,
+        partsCount: contents[0].parts.length,
+        configKeys: Object.keys(config)
       });
-      throw new Error(`Gemini API error: ${response.status} - ${error}`);
+      
+      result = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        config,
+        contents,
+      });
+    } catch (apiError) {
+      console.error('API call failed:', {
+        error: apiError.message,
+        stack: apiError.stack,
+        status: apiError.status,
+        statusText: apiError.statusText
+      });
+      throw apiError;
     }
 
-    const geminiData = await response.json();
     const responseTime = Date.now() - startTime;
 
     console.log('Gemini API response received:', {
       responseTime: `${responseTime}ms`,
-      hasCandidates: !!geminiData.candidates,
-      candidatesLength: geminiData.candidates?.length || 0
+      hasResult: !!result,
+      resultKeys: result ? Object.keys(result) : []
     });
 
     // Extract the generated text
-    const generatedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    const generatedText = result.text;
     
     if (!generatedText) {
-      console.error('No text in Gemini response:', geminiData);
+      console.error('No text in Gemini response:', result);
       throw new Error('No response from Gemini API');
     }
 
@@ -177,7 +264,7 @@ export default async function handler(req, res) {
         response_text: JSON.stringify(ingredients),
         response_time_ms: responseTime,
         success: true,
-        gemini_response: geminiData
+        gemini_response: { generatedText }
       });
     } catch (logError) {
       console.error('Failed to log to Supabase:', logError);
