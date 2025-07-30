@@ -84,8 +84,8 @@ We may update this Privacy Policy from time to time. We will notify users of any
 
 If you have any questions about this Privacy Policy or our data practices, please contact us:
 
-- **Email**: [your-email@example.com]
-- **GitHub**: [https://github.com/your-username/recipe-gpt]
+- **Email**: [julien.wut@gmail.com]
+- **GitHub**: [https://github.com/jwuthri/recipe-gpt]
 
 ## Regional Compliance
 
