@@ -2,13 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/services.dart';
 
+import '../../config/app_config.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/errors/network_exceptions.dart';
 import '../../core/network/network_client.dart';
 import '../models/ingredient_model.dart';
 import '../models/recipe_model.dart';
 import '../models/chat_message_model.dart';
-import '../../core/constants/app_constants.dart';
-import '../../core/errors/network_exceptions.dart';
+import '../../domain/entities/ingredient.dart';
 
 /// Abstract interface for AI remote data source
 abstract class AIRemoteDataSource {
@@ -31,7 +35,7 @@ abstract class AIRemoteDataSource {
   Future<bool> testConnection();
 
   /// Analyzes ingredients from images
-  Future<List<String>> analyzeIngredientsFromImages({
+  Future<List<Ingredient>> analyzeIngredientsFromImages({
     required List<String> imagePaths,
   });
 }
@@ -169,49 +173,246 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
 
   /// Analyzes ingredients from images
   @override
-  Future<List<String>> analyzeIngredientsFromImages({
+  Future<List<Ingredient>> analyzeIngredientsFromImages({
     required List<String> imagePaths,
   }) async {
     try {
       if (AppConstants.useBackend) {
-        // Backend endpoint for image analysis
+        print('🚀 Using backend for image analysis');
+        print('Backend URL: ${AppConstants.backendUrl}');
+        
+        // Convert image files to base64 for backend analysis
+        final List<String> imageBase64List = [];
+        
+        for (final imagePath in imagePaths) {
+          print('🔍 Processing image path: $imagePath');
+          
+          final File imageFile = File(imagePath);
+          final bool exists = await imageFile.exists();
+          
+          print('📁 File exists: $exists');
+          
+          if (exists) {
+            try {
+              List<int> imageBytes = await imageFile.readAsBytes();
+              print('📊 Original image bytes length: ${imageBytes.length}');
+              
+              if (imageBytes.isEmpty) {
+                print('❌ Image file is empty: ${imagePath}');
+                continue;
+              }
+              
+              // Compress image if it's too large (>2MB)
+              if (imageBytes.length > 2 * 1024 * 1024) {
+                print('🗜️ Image too large, compressing...');
+                imageBytes = await _compressImage(imageBytes);
+                print('📉 Compressed image bytes length: ${imageBytes.length}');
+              }
+              
+              final String base64Image = base64Encode(imageBytes);
+              print('📝 Base64 conversion result: originalPath=$imagePath, bytesLength=${imageBytes.length}, base64Length=${base64Image.length}');
+              
+              // Final check - if still too large after compression, skip
+              if (base64Image.length > 4 * 1024 * 1024) { // 4MB limit for base64
+                print('❌ Image still too large after compression, skipping');
+                continue;
+              }
+              
+              imageBase64List.add(base64Image);
+              print('✅ Successfully added image to base64 list');
+            } catch (e) {
+              print('❌ Error reading image file: $e');
+            }
+          } else {
+            print('❌ Image file not found: ${imagePath}');
+          }
+        }
+        
+        if (imageBase64List.isEmpty) {
+          throw Exception('No valid images found');
+        }
+
+        print('📤 Calling backend with ${imageBase64List.length} images');
+        
+        // Call backend endpoint for image analysis
         final response = await _networkClient.post(
-          endpoint: '/analyze-ingredients',
+          endpoint: 'analyze-ingredients',
           data: {
-            'images': imagePaths,
+            'images': imageBase64List,
           },
         );
         
+        print('✅ Backend response received: ${response.keys}');
+        
         // Response is already a Map<String, dynamic>
-        return List<String>.from(response['ingredients'] ?? []);
+        if (response['success'] == true) {
+          final List<dynamic> ingredientsData = response['ingredients'] ?? [];
+          return ingredientsData.map((item) {
+            if (item is Map<String, dynamic>) {
+              return Ingredient(
+                name: item['name']?.toString() ?? 'Unknown ingredient',
+                quantity: item['quantity']?.toString() ?? '1',
+                unit: item['unit']?.toString() ?? 'piece',
+              );
+            } else {
+              // Fallback for string items
+              return Ingredient(
+                name: item.toString(),
+                quantity: '1',
+                unit: 'piece',
+              );
+            }
+          }).toList();
+        } else {
+          throw Exception(response['error'] ?? 'Failed to analyze ingredients');
+        }
       } else {
         // Direct Gemini API call for image analysis
         return await _analyzeImagesWithGemini(imagePaths);
       }
     } catch (e) {
-      throw createNetworkException(message: 'Failed to analyze ingredients: $e');
+      print('❌ Backend call failed - Error analyzing ingredients: $e');
+      print('🔄 Falling back to direct Gemini API...');
+      // Fallback to direct API if backend fails
+      return await _analyzeImagesWithGemini(imagePaths);
     }
   }
 
-  /// Analyzes images directly with Gemini API
-  Future<List<String>> _analyzeImagesWithGemini(List<String> imagePaths) async {
+  /// Analyzes images directly with Gemini Vision API
+  Future<List<Ingredient>> _analyzeImagesWithGemini(List<String> imagePaths) async {
     try {
-      // For now, return mock ingredients since image analysis requires more complex setup
-      // This is a temporary solution until we implement proper vision API
-      await Future.delayed(const Duration(seconds: 2)); // Simulate processing
+      // Convert images to base64
+      final List<Map<String, dynamic>> imageParts = [];
       
-      // Return some mock ingredients based on common food items
-      return [
-        'chicken breast',
-        'onion',
-        'garlic',
-        'tomato',
-        'bell pepper',
-        'olive oil',
-        'salt',
-        'black pepper',
-      ];
+      for (final imagePath in imagePaths) {
+        final File imageFile = File(imagePath);
+        if (await imageFile.exists()) {
+          final List<int> imageBytes = await imageFile.readAsBytes();
+          final String base64Image = base64Encode(imageBytes);
+          
+          imageParts.add({
+            'inlineData': {
+              'mimeType': 'image/jpeg',
+              'data': base64Image,
+            }
+          });
+        }
+      }
+      
+      if (imageParts.isEmpty) {
+        throw Exception('No valid images found');
+      }
+
+      // Prepare the text part
+      final textPart = {
+        'text': 'Analyze these images of food/pantry/fridge and identify all visible food ingredients. '
+               'For each ingredient, estimate a reasonable quantity and unit. '
+               'Return a JSON array of ingredient objects with this exact format: '
+               '[{"name": "chicken breast", "quantity": "2", "unit": "pieces"}, {"name": "onion", "quantity": "1", "unit": "medium"}, {"name": "garlic", "quantity": "3", "unit": "cloves"}]. '
+               'Only include actual food ingredients, not containers, utensils, or non-food items. '
+               'Be specific about ingredients and provide realistic quantities. '
+               'Common units: pieces, cloves, cups, tablespoons, teaspoons, grams, ounces, pounds, medium, large, small. '
+               'Return ONLY the JSON array, no additional text.'
+      };
+
+      // Prepare the request matching exactly what works in backend
+      final requestBody = {
+        'contents': [{
+          'parts': [textPart, ...imageParts]
+        }],
+        'generationConfig': {
+          'temperature': 0.3,
+          'maxOutputTokens': 1024 * 4,
+        }
+      };
+
+      // Get API key safely
+      String apiKey;
+      try {
+        apiKey = AppConfig.geminiApiKey;
+      } catch (e) {
+        throw Exception('Gemini API key not configured: $e');
+      }
+
+      // Debug: Print request structure (only in debug mode)
+      print('Making Gemini API request with ${imageParts.length} images');
+      print('Request structure: ${requestBody.keys}');
+      
+      // Make direct call to Gemini Vision API with correct endpoint
+      final response = await _networkClient.postRaw(
+        url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey',
+        data: requestBody,
+      );
+
+      // Parse the response
+      String? generatedText;
+      if (response['candidates'] != null && 
+          response['candidates'].length > 0 &&
+          response['candidates'][0]['content'] != null &&
+          response['candidates'][0]['content']['parts'] != null &&
+          response['candidates'][0]['content']['parts'].length > 0) {
+        generatedText = response['candidates'][0]['content']['parts'][0]['text'];
+      }
+      
+      if (generatedText == null) {
+        throw Exception('No response from Gemini API');
+      }
+
+      // Extract ingredients from JSON response
+      List<Ingredient> ingredients = [];
+      try {
+        // Try to find JSON array in the response
+        final jsonMatch = RegExp(r'\[.*\]', dotAll: true).firstMatch(generatedText);
+        if (jsonMatch != null) {
+          final jsonString = jsonMatch.group(0);
+          final List<dynamic> parsed = jsonDecode(jsonString!);
+          ingredients = parsed.map((item) {
+            if (item is Map<String, dynamic>) {
+              return Ingredient(
+                name: item['name']?.toString() ?? 'Unknown ingredient',
+                quantity: item['quantity']?.toString() ?? '1',
+                unit: item['unit']?.toString() ?? 'piece',
+              );
+            } else {
+              // Fallback for string items
+              return Ingredient(
+                name: item.toString(),
+                quantity: '1',
+                unit: 'piece',
+              );
+            }
+          }).toList();
+        } else {
+          // Fallback: parse line by line and create basic ingredients
+          final lines = generatedText.split('\n')
+              .where((line) => line.trim().isNotEmpty)
+              .map((line) => line.replaceAll(RegExp(r'^[-*•]\s*'), '').trim())
+              .where((line) => line.isNotEmpty)
+              .toList();
+          ingredients = lines.map((name) => Ingredient(
+            name: name,
+            quantity: '1',
+            unit: 'piece',
+          )).toList();
+        }
+      } catch (parseError) {
+        // Last fallback: split by lines and create basic ingredients
+        final lines = generatedText.split('\n')
+            .where((line) => line.trim().isNotEmpty)
+            .map((line) => line.replaceAll(RegExp(r'^[-*•]\s*'), '').trim())
+            .where((line) => line.isNotEmpty)
+            .toList();
+        ingredients = lines.map((name) => Ingredient(
+          name: name,
+          quantity: '1',
+          unit: 'piece',
+        )).toList();
+      }
+
+      return ingredients.isNotEmpty ? ingredients : [Ingredient(name: 'No ingredients detected', quantity: '0', unit: 'none')];
+      
     } catch (e) {
+      print('Error in direct Gemini image analysis: $e');
       throw createNetworkException(message: 'Failed to analyze images: $e');
     }
   }
@@ -253,16 +454,57 @@ Return ONLY the JSON array, no additional text.
     return {
       'contents': [{
         'parts': [{
-          'text': 'Generate a recipe using these ingredients: $ingredientText. '
-                  'Style: $styleId. Please provide a complete recipe with ingredients, '
-                  'instructions, and cooking details in markdown format.'
+          'text': '''Create a detailed recipe using these ingredients: $ingredientText.
+
+Recipe Style: $styleId
+
+Please format the response using this EXACT template:
+
+# [Recipe Title]
+
+*[Brief appetizing description in 1-2 sentences]*
+
+## 📊 Recipe Info
+- **Prep Time:** [X minutes]
+- **Cook Time:** [X minutes] 
+- **Total Time:** [X minutes]
+- **Servings:** [X servings]
+- **Difficulty:** [Easy/Medium/Hard]
+- **Cuisine:** [Type of cuisine]
+
+## 🥘 Ingredients
+${ingredients.map((ing) => '- ${ing['quantity']} ${ing['unit']} ${ing['name']}').join('\n')}
+[Add any additional ingredients needed]
+
+## 👨‍🍳 Instructions
+1. [Detailed step-by-step instruction]
+2. [Continue with each step...]
+[Continue until recipe is complete]
+
+## 📈 Nutrition (Per Serving)
+
+| Nutrient | Amount |
+|----------|--------|
+| Calories | [X kcal] |
+| Protein | [X g] |
+| Carbohydrates | [X g] |
+| Fat | [X g] |
+| Fiber | [X g] |
+| Sugar | [X g] |
+| Sodium | [X mg] |
+
+## 💡 Chef's Tips
+- [Helpful tip or variation]
+- [Storage instructions]
+- [Serving suggestions]
+
+---
+*Enjoy your delicious $styleId meal!* 🍽️'''
         }]
       }],
       'generationConfig': {
-        'temperature': 0.7,
-        'topK': 40,
-        'topP': 0.95,
-        'maxOutputTokens': 2048,
+        'temperature': 0.3,
+        'maxOutputTokens': 2048 * 3, // Increased for detailed template with nutrition info
       }
     };
   }
@@ -439,5 +681,37 @@ Return ONLY the JSON array, no additional text.
       'quick': '⚡',
     };
     return styleIcons[styleId] ?? '🍳';
+  }
+
+  /// Compresses image data to reduce size for API calls
+  Future<List<int>> _compressImage(List<int> imageBytes) async {
+    try {
+      // Decode the image
+      final ui.Codec codec = await ui.instantiateImageCodec(
+        Uint8List.fromList(imageBytes),
+        targetWidth: 1024, // Resize to max 1024px width
+        targetHeight: 1024, // Resize to max 1024px height
+      );
+      final ui.FrameInfo frameInfo = await codec.getNextFrame();
+      final ui.Image image = frameInfo.image;
+
+      // Convert to bytes with compression
+      final ByteData? byteData = await image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      
+      image.dispose();
+      codec.dispose();
+      
+      if (byteData == null) {
+        throw Exception('Failed to compress image');
+      }
+      
+      return byteData.buffer.asUint8List();
+    } catch (e) {
+      print('❌ Image compression failed: $e');
+      // Return original if compression fails
+      return imageBytes;
+    }
   }
 } 

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI } from '@google/genai';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -7,6 +8,11 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -21,81 +27,101 @@ export default async function handler(req, res) {
   try {
     const { ingredients, styleId } = req.body;
 
-    // Prepare the request for Gemini API
-    const geminiRequest = {
-      contents: [{
-        parts: [{
-          text: `Generate a recipe using these ingredients: ${ingredients.map(ing => `${ing.quantity} ${ing.unit} ${ing.name}`).join(', ')}. Style: ${styleId}. Please provide a complete recipe with ingredients, instructions, and cooking details.`
-        }]
-      }],
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 2048,
-      }
-    };
+    // Initialize Google GenAI
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+    });
+
+    console.log('Using Google GenAI SDK for streaming recipe generation');
 
     // Set up SSE headers
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    // Make streaming request to Gemini API
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${process.env.GEMINI_API_KEY}&alt=sse`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(geminiRequest)
-      }
-    );
+    // Generate content with streaming using Google GenAI SDK
+    const contents = [{
+      role: 'user',
+      parts: [{
+        text: `Create a detailed recipe using these ingredients: ${ingredients.map(ing => `${ing.quantity} ${ing.unit} ${ing.name}`).join(', ')}.
 
-    if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`);
-    }
+Recipe Style: ${styleId}
+
+Please format the response using this EXACT template:
+
+# [Recipe Title]
+
+*[Brief appetizing description in 1-2 sentences]*
+
+## 📊 Recipe Info
+- **Prep Time:** [X minutes]
+- **Cook Time:** [X minutes] 
+- **Total Time:** [X minutes]
+- **Servings:** [X servings]
+- **Difficulty:** [Easy/Medium/Hard]
+- **Cuisine:** [Type of cuisine]
+
+## 🥘 Ingredients
+${ingredients.map(ing => `- ${ing.quantity} ${ing.unit} ${ing.name}`).join('\n')}
+[Add any additional ingredients needed]
+
+## 👨‍🍳 Instructions
+1. [Detailed step-by-step instruction]
+2. [Continue with each step...]
+[Continue until recipe is complete]
+
+## 📈 Nutrition (Per Serving)
+
+| Nutrient | Amount |
+|----------|--------|
+| Calories | [X kcal] |
+| Protein | [X g] |
+| Carbohydrates | [X g] |
+| Fat | [X g] |
+| Fiber | [X g] |
+| Sugar | [X g] |
+| Sodium | [X mg] |
+
+## 💡 Chef's Tips
+- [Helpful tip or variation]
+- [Storage instructions]
+- [Serving suggestions]
+
+---
+*Enjoy your delicious ${styleId} meal!* 🍽️`
+      }]
+    }];
+
+    const config = {
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 2048 * 3, // Increased for detailed template with nutrition info
+      }
+    };
+
+    const response = await ai.models.generateContentStream({
+      model: 'gemini-2.5-flash',
+      config,
+      contents,
+    });
 
     let fullResponse = '';
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
-            
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.candidates?.[0]?.content?.parts?.[0]?.text) {
-                const text = parsed.candidates[0].content.parts[0].text;
-                fullResponse += text;
-                res.write(text);
-              }
-            } catch (parseError) {
-              // Skip invalid JSON
-            }
-          }
-        }
+    // Stream the response
+    for await (const chunk of response) {
+      const chunkText = chunk.text;
+      if (chunkText) {
+        fullResponse += chunkText;
+        res.write(chunkText);
       }
-    } finally {
-      reader.releaseLock();
     }
 
     const responseTime = Date.now() - startTime;
 
     // Log to Supabase
     try {
+      const promptText = `Generate a recipe using these ingredients: ${ingredients.map(ing => `${ing.quantity} ${ing.unit} ${ing.name}`).join(', ')}. Style: ${styleId}. Please provide a complete recipe with ingredients, instructions, and cooking details.`;
+      
       await supabase
         .from('llm_messages')
         .insert({
@@ -103,7 +129,7 @@ export default async function handler(req, res) {
           request_type: 'stream_recipe',
           ingredients_count: ingredients.length,
           style_id: styleId,
-          prompt_text: geminiRequest.contents[0].parts[0].text,
+          prompt_text: promptText,
           response_text: fullResponse,
           response_time_ms: responseTime,
           success: true,

@@ -28,5 +28,7 @@
         }
       ]
     }
-  ]
+  ],
+  "framework": null,
+  "public": false
 } 

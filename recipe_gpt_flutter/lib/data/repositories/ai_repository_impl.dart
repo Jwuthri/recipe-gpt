@@ -11,16 +11,12 @@ class AIRepositoryImpl implements AIRepository {
   @override
   Future<List<Ingredient>> analyzeImages(List<String> imagePaths) async {
     // Call the remote data source to analyze ingredients from images
-    final ingredientNames = await _remoteDataSource.analyzeIngredientsFromImages(
+    final ingredients = await _remoteDataSource.analyzeIngredientsFromImages(
       imagePaths: imagePaths,
     );
     
-    // Convert strings to Ingredient objects
-    return ingredientNames.map((name) => Ingredient(
-      name: name,
-      quantity: '1',
-      unit: 'piece',
-    )).toList();
+    // No conversion needed - already Ingredient objects
+    return ingredients;
   }
 
   @override
@@ -35,10 +31,10 @@ class AIRepositoryImpl implements AIRepository {
       'unit': ingredient.unit,
     }).toList();
 
-    yield* _remoteDataSource.generateRecipeStream(
+      yield* _remoteDataSource.generateRecipeStream(
       ingredients: ingredientsData,
-      styleId: styleId,
-    );
+        styleId: styleId,
+      );
   }
 
   @override

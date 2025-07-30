@@ -37,11 +37,15 @@ class NetworkClient {
         // Use secure backend
         url = '${AppConstants.backendUrl}/$endpoint';
         requestData = data;
+        print('🌐 Using backend URL: $url');
       } else {
         // Direct API call (fallback)
         url = '${AppConstants.geminiApiUrl}?key=$_apiKey';
         requestData = data;
+        print('🌐 Using direct API URL: ${url.substring(0, url.indexOf('?'))}');
       }
+      
+      print('📋 Request data keys: ${data.keys.toList()}');
       
       final response = await _dio.post(
         url,
@@ -53,6 +57,8 @@ class NetworkClient {
           },
         ),
       );
+      
+      print('✅ Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         return response.data as Map<String, dynamic>;
@@ -63,8 +69,39 @@ class NetworkClient {
         );
       }
     } catch (e) {
+      print('❌ Network error in post(): $e');
       if (e is NetworkException) rethrow;
       throw createNetworkException(message: 'Unexpected error: $e');
+    }
+  }
+
+  /// Makes a raw POST request to any URL (for direct API calls)
+  Future<Map<String, dynamic>> postRaw({
+    required String url,
+    required Map<String, dynamic> data,
+    Map<String, String>? headers,
+  }) async {
+    try {
+      print('Making raw POST request to: ${url.substring(0, url.indexOf('?'))}');
+      print('Request data keys: ${data.keys.toList()}');
+      print('Request headers: ${headers ?? {}}');
+      
+      final response = await _dio.post(
+        url,
+        data: jsonEncode(data),
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            ...?headers,
+          },
+        ),
+      );
+      
+      print('Response status: ${response.statusCode}');
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      print('Raw request error: $e');
+      throw createNetworkException(message: 'Raw request failed: $e');
     }
   }
 
@@ -132,7 +169,7 @@ class NetworkClient {
       );
 
       final stream = response.data.stream as Stream<Uint8List>;
-      
+    
       await for (final chunk in stream) {
         final text = utf8.decode(chunk);
         final lines = text.split('\n');

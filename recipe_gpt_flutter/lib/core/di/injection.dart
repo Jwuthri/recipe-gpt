@@ -81,7 +81,7 @@ Dio _createDio() {
   // Add interceptors
   dio.interceptors.add(
     LogInterceptor(
-      requestBody: true,
+      requestBody: false, // Disabled to avoid base64 spam in logs
       responseBody: false, // Don't log response body for streaming
       logPrint: (object) {
         print('[DIO] $object');
