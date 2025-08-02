@@ -202,8 +202,8 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
                 continue;
               }
               
-              // Compress image if it's too large (>2MB)
-              if (imageBytes.length > 2 * 1024 * 1024) {
+              // Compress image if it's too large (>1MB for Vercel compatibility)
+              if (imageBytes.length > 1024 * 1024) {
                 print('🗜️ Image too large, compressing...');
                 imageBytes = await _compressImage(imageBytes);
                 print('📉 Compressed image bytes length: ${imageBytes.length}');
@@ -212,8 +212,8 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
               final String base64Image = base64Encode(imageBytes);
               print('📝 Base64 conversion result: originalPath=$imagePath, bytesLength=${imageBytes.length}, base64Length=${base64Image.length}');
               
-              // Final check - if still too large after compression, skip
-              if (base64Image.length > 4 * 1024 * 1024) { // 4MB limit for base64
+              // Final check - if still too large after compression, skip (3MB limit for Vercel)
+              if (base64Image.length > 3 * 1024 * 1024) {
                 print('❌ Image still too large after compression, skipping');
                 continue;
               }
