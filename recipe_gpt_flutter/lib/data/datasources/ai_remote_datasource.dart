@@ -233,6 +233,8 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         }
 
         print('📤 Calling backend with ${imageBase64List.length} images');
+        print('🔧 DEBUG: imageBase64List.isEmpty = ${imageBase64List.isEmpty}');
+        print('🔧 DEBUG: First image preview = ${imageBase64List.isNotEmpty ? imageBase64List[0].substring(0, 50) : "NO IMAGES"}');
         
         // Call backend endpoint for image analysis
         final response = await _networkClient.post(
@@ -246,8 +248,9 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         
         // Response is already a Map<String, dynamic>
         if (response['success'] == true) {
-          final List<dynamic> ingredientsData = response['ingredients'] ?? [];
-          return ingredientsData.map((item) {
+          final ingredientsData = response['ingredients'];
+          final List<dynamic> ingredientsList = ingredientsData is List ? ingredientsData : [];
+          return ingredientsList.map((item) {
             if (item is Map<String, dynamic>) {
               return Ingredient(
                 name: item['name']?.toString() ?? 'Unknown ingredient',
@@ -346,12 +349,18 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
 
       // Parse the response
       String? generatedText;
-      if (response['candidates'] != null && 
-          response['candidates'].length > 0 &&
-          response['candidates'][0]['content'] != null &&
-          response['candidates'][0]['content']['parts'] != null &&
-          response['candidates'][0]['content']['parts'].length > 0) {
-        generatedText = response['candidates'][0]['content']['parts'][0]['text'];
+      final candidates = response['candidates'];
+      if (candidates != null && candidates is List && candidates.isNotEmpty) {
+        final candidate = candidates[0];
+        if (candidate != null && candidate is Map) {
+          final content = candidate['content'];
+          if (content != null && content is Map) {
+            final parts = content['parts'];
+            if (parts != null && parts is List && parts.isNotEmpty) {
+              generatedText = parts[0]['text']?.toString();
+            }
+          }
+        }
       }
       
       if (generatedText == null) {
@@ -365,8 +374,9 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         final jsonMatch = RegExp(r'\[.*\]', dotAll: true).firstMatch(generatedText);
         if (jsonMatch != null) {
           final jsonString = jsonMatch.group(0);
-          final List<dynamic> parsed = jsonDecode(jsonString!);
-          ingredients = parsed.map((item) {
+          final parsed = jsonDecode(jsonString!);
+          final List<dynamic> parsedList = parsed is List ? parsed : [];
+          ingredients = parsedList.map((item) {
             if (item is Map<String, dynamic>) {
               return Ingredient(
                 name: item['name']?.toString() ?? 'Unknown ingredient',
@@ -593,21 +603,24 @@ ${ingredients.map((ing) => '- ${ing['quantity']} ${ing['unit']} ${ing['name']}')
   /// Parses API response and extracts ingredients
   List<IngredientModel> _parseIngredientsResponse(Map<String, dynamic> response) {
     try {
-      if (response['candidates'] == null || response['candidates'].isEmpty) {
+      final candidates = response['candidates'];
+      if (candidates == null || (candidates is List && candidates.isEmpty)) {
         throw Exception('No response from API');
       }
 
-      final candidate = response['candidates'][0];
-      if (candidate['content'] == null || 
-          candidate['content']['parts'] == null ||
-          candidate['content']['parts'].isEmpty) {
+      final candidate = candidates[0];
+      final content = candidate['content'];
+      final parts = content != null ? content['parts'] : null;
+      if (content == null || 
+          parts == null ||
+          (parts is List && parts.isEmpty)) {
         throw Exception('Invalid response structure');
       }
 
-      final content = candidate['content']['parts'][0]['text'] as String;
+      final contentText = parts[0]['text']?.toString() ?? '';
       
       // Try to parse JSON array
-      final cleanContent = _extractJsonFromText(content);
+      final cleanContent = _extractJsonFromText(contentText);
       
       // Handle different response formats
       List<dynamic> ingredientsList;

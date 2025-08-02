@@ -10,6 +10,7 @@ import '../blocs/chat/chat_state.dart';
 import '../widgets/gradient_container.dart';
 import '../widgets/loading_overlay.dart';
 import '../routes/app_router.dart';
+import '../../data/models/chat_message_model.dart';
 
 /// Screen for AI chat conversations
 class ChatScreen extends StatefulWidget {
@@ -173,7 +174,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessagesList(
-    List<dynamic> messages, {
+    List<ChatMessageModel> messages, {
     String? streamingContent,
     bool isTyping = false,
   }) {
@@ -205,8 +206,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildMessageBubble(dynamic message) {
-    final isUser = message.isFromUser;
+  Widget _buildMessageBubble(ChatMessageModel message) {
+    final isUser = message.type == MessageType.user;
     final content = message.content;
     final timestamp = message.timestamp;
 
