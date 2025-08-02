@@ -344,15 +344,17 @@ export default async function handler(req, res) {
   } catch (error) {
     const responseTime = Date.now() - startTime;
     
-    console.error('ERROR in analyze-ingredients:', {
-      message: error.message,
-      stack: error.stack,
-      responseTime: `${responseTime}ms`,
-      clientIP: clientIP
-    });
+    console.log(`\n💥 ERROR OCCURRED [${requestId || 'unknown'}]`);
+    console.log(`❌ Error type: ${error.constructor.name}`);
+    console.log(`❌ Error message: ${error.message}`);
+    console.log(`❌ Response time: ${responseTime}ms`);
+    console.log(`❌ Client IP: ${clientIP}`);
+    console.log(`❌ Stack trace:`, error.stack);
+    console.log(`❌ Full error object:`, error);
     
     // Log error to Supabase
     try {
+      console.log(`📊 Logging error to Supabase...`);
       await supabase.from('llm_messages').insert({
         client_ip: clientIP,
         request_type: 'analyze_ingredients',
@@ -361,15 +363,25 @@ export default async function handler(req, res) {
         success: false,
         error_message: error.message
       });
+      console.log(`✅ Error logged to Supabase successfully`);
     } catch (logError) {
-      console.error('Failed to log error to Supabase:', logError);
+      console.log(`❌ Failed to log error to Supabase:`, logError);
     }
 
-    console.error('Analyze ingredients error:', error);
-    return res.status(500).json({
+    const errorResponse = {
       success: false,
       error: 'Failed to analyze ingredients',
-      details: error.message
+      details: error.message,
+      requestId: requestId || 'unknown',
+      timestamp: new Date().toISOString(),
+      responseTime: responseTime
+    };
+
+    console.log(`📤 Sending error response [${requestId || 'unknown'}]:`, {
+      statusCode: 500,
+      errorType: error.constructor.name
     });
+
+    return res.status(500).json(errorResponse);
   }
 } 
