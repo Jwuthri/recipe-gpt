@@ -8,6 +8,10 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  console.log('\n🚀 =================================');
+  console.log('🚀 ANALYZE INGREDIENTS API CALLED');
+  console.log('🚀 =================================');
+  
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -15,32 +19,56 @@ export default async function handler(req, res) {
   
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
+    console.log('✅ CORS preflight request handled');
     return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
+    console.log(`❌ Method not allowed: ${req.method}`);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
   const startTime = Date.now();
+  const requestId = Math.random().toString(36).substring(7);
 
-  console.log(`[${new Date().toISOString()}] New request from ${clientIP}`);
-  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
-  console.log('Request body keys:', Object.keys(req.body || {}));
+  console.log(`\n📋 REQUEST INFO [${requestId}]`);
+  console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
+  console.log(`🌍 Client IP: ${clientIP}`);
+  console.log(`📦 User Agent: ${req.headers['user-agent'] || 'unknown'}`);
+  console.log(`📊 Content Length: ${req.headers['content-length'] || 'unknown'}`);
+  console.log(`🔗 Referer: ${req.headers.referer || 'none'}`);
+  console.log(`📋 All Headers:`, JSON.stringify(req.headers, null, 2));
+  console.log(`🔑 Body Keys: [${Object.keys(req.body || {}).join(', ')}]`);
+  console.log(`📏 Body Size: ${JSON.stringify(req.body || {}).length} chars`);
 
   try {
     const { images } = req.body;
 
-    console.log('Images received:', images ? `${images.length} images` : 'no images');
+    console.log(`\n🖼️  IMAGE VALIDATION [${requestId}]`);
+    console.log(`📥 Raw images data type: ${typeof images}`);
+    console.log(`📊 Is Array: ${Array.isArray(images)}`);
+    console.log(`🔢 Images count: ${images ? images.length : 0}`);
     
     if (!images || !Array.isArray(images) || images.length === 0) {
-      console.error('Invalid images array:', { images, type: typeof images, isArray: Array.isArray(images) });
+      console.log(`❌ VALIDATION FAILED [${requestId}]`);
+      console.log(`❌ Images: ${images}`);
+      console.log(`❌ Type: ${typeof images}`);
+      console.log(`❌ Is Array: ${Array.isArray(images)}`);
+      console.log(`❌ Length: ${images?.length || 'N/A'}`);
       return res.status(400).json({ error: 'Images array is required' });
     }
 
+    console.log(`✅ IMAGE VALIDATION PASSED [${requestId}]`);
+
     // Initialize Google GenAI
+    console.log(`\n🤖 GEMINI API SETUP [${requestId}]`);
+    console.log(`🔑 API Key exists: ${!!process.env.GEMINI_API_KEY}`);
+    console.log(`🔑 API Key length: ${process.env.GEMINI_API_KEY?.length || 0}`);
+    console.log(`🔑 API Key prefix: ${process.env.GEMINI_API_KEY?.substring(0, 10) || 'MISSING'}...`);
+    
     if (!process.env.GEMINI_API_KEY) {
+      console.log(`❌ GEMINI_API_KEY NOT SET [${requestId}]`);
       throw new Error('GEMINI_API_KEY environment variable is not set');
     }
     
@@ -48,17 +76,19 @@ export default async function handler(req, res) {
       apiKey: process.env.GEMINI_API_KEY,
     });
 
-    console.log('Using Google GenAI SDK with model: gemini-2.5-flash');
+    console.log(`✅ Gemini AI initialized successfully [${requestId}]`);
+    console.log(`🎯 Using model: gemini-2.5-flash`);
 
     // Prepare image parts for Gemini Vision API with validation
+    console.log(`\n🔍 IMAGE PROCESSING [${requestId}]`);
     const imageParts = [];
     
     for (let i = 0; i < images.length; i++) {
       const imageBase64 = images[i];
-      console.log(`Processing image ${i + 1}:`, {
-        length: imageBase64.length,
-        startsWithData: imageBase64.startsWith('data:')
-      });
+      console.log(`\n📸 Processing image ${i + 1}/${images.length} [${requestId}]:`);
+      console.log(`  📏 Length: ${imageBase64.length} chars`);
+      console.log(`  🏷️  Starts with 'data:': ${imageBase64.startsWith('data:')}`);
+      console.log(`  🔤 First 50 chars: ${imageBase64.substring(0, 50)}...`);
       
       // Clean the base64 data
       let cleanBase64 = imageBase64;
@@ -84,13 +114,16 @@ export default async function handler(req, res) {
       
       // Check if it's valid base64
       try {
+        console.log(`  🧪 Validating base64 format...`);
         // Try to decode to validate
         const buffer = Buffer.from(cleanBase64, 'base64');
+        console.log(`  ✅ Base64 decode successful, buffer size: ${buffer.length} bytes`);
         
         // Detect MIME type from image header
         let mimeType = "image/jpeg"; // default
         if (buffer.length >= 8) {
           const header = buffer.toString('hex', 0, 8).toLowerCase();
+          console.log(`  🔍 Image header: ${header}`);
           if (header.startsWith('89504e47')) {
             mimeType = "image/png";
           } else if (header.startsWith('ffd8ff')) {
@@ -100,12 +133,14 @@ export default async function handler(req, res) {
           } else if (header.startsWith('52494646')) {
             mimeType = "image/webp";
           }
+          console.log(`  🎨 Detected MIME type: ${mimeType}`);
         }
         
-        console.log(`✅ Image ${i + 1} validation passed:`, {
+        console.log(`✅ Image ${i + 1} validation PASSED [${requestId}]:`, {
           mimeType: mimeType,
           base64Length: cleanBase64.length,
-          bufferSize: buffer.length
+          bufferSize: buffer.length,
+          sizeKB: Math.round(buffer.length / 1024)
         });
         
         imageParts.push({
@@ -114,8 +149,10 @@ export default async function handler(req, res) {
             data: cleanBase64
           }
         });
+        console.log(`  ✅ Added to imageParts array`);
       } catch (error) {
-        console.error(`❌ Image ${i + 1} failed base64 validation:`, error.message);
+        console.log(`❌ Image ${i + 1} FAILED base64 validation [${requestId}]:`, error.message);
+        console.log(`❌ Base64 preview: ${cleanBase64.substring(0, 100)}...`);
         continue;
       }
     }
@@ -144,7 +181,8 @@ export default async function handler(req, res) {
     });
 
     // Make request using Google GenAI SDK with correct structure
-    console.log('Making request to Gemini API using official SDK...');
+    console.log(`\n🚀 GEMINI API CALL [${requestId}]`);
+    console.log(`📤 Preparing request to Gemini API...`);
     
     const contents = [{
       role: 'user',
@@ -161,48 +199,59 @@ export default async function handler(req, res) {
       }
     };
 
+    console.log(`📋 Request Structure [${requestId}]:`);
+    console.log(`  🎯 Model: gemini-2.5-flash`);
+    console.log(`  📄 Contents length: ${contents.length}`);
+    console.log(`  🧩 Parts count: ${contents[0].parts.length}`);
+    console.log(`  🔧 Config: ${JSON.stringify(config, null, 2)}`);
+    console.log(`  📝 Text prompt length: ${textPart.text.length} chars`);
+    console.log(`  🖼️  Image parts: ${imageParts.length}`);
+
     let result;
     try {
-      console.log('Making API call with:', {
-        model: 'gemini-2.5-flash',
-        contentsLength: contents.length,
-        partsCount: contents[0].parts.length,
-        configKeys: Object.keys(config)
-      });
+      console.log(`\n🔄 Making API call to Gemini... [${requestId}]`);
+      const apiCallStart = Date.now();
       
       result = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         config,
         contents,
       });
+      
+      const apiCallTime = Date.now() - apiCallStart;
+      console.log(`✅ API call completed in ${apiCallTime}ms [${requestId}]`);
+      console.log(`📊 Result object keys: [${Object.keys(result || {}).join(', ')}]`);
+      
     } catch (apiError) {
-      console.error('API call failed:', {
-        error: apiError.message,
-        stack: apiError.stack,
-        status: apiError.status,
-        statusText: apiError.statusText
-      });
+      console.log(`❌ GEMINI API CALL FAILED [${requestId}]:`);
+      console.log(`❌ Error message: ${apiError.message}`);
+      console.log(`❌ Error status: ${apiError.status}`);
+      console.log(`❌ Error statusText: ${apiError.statusText}`);
+      console.log(`❌ Full error:`, apiError);
       throw apiError;
     }
 
     const responseTime = Date.now() - startTime;
 
-    console.log('Gemini API response received:', {
-      responseTime: `${responseTime}ms`,
-      hasResult: !!result,
-      resultKeys: result ? Object.keys(result) : []
-    });
+    console.log(`\n📥 GEMINI RESPONSE [${requestId}]`);
+    console.log(`⏱️  Total response time: ${responseTime}ms`);
+    console.log(`✅ Has result object: ${!!result}`);
+    console.log(`🔑 Result keys: [${result ? Object.keys(result).join(', ') : 'none'}]`);
 
     // Extract the generated text
+    console.log(`\n🔍 EXTRACTING RESPONSE TEXT [${requestId}]`);
     const generatedText = result.text;
     
     if (!generatedText) {
-      console.error('No text in Gemini response:', result);
+      console.log(`❌ NO TEXT IN RESPONSE [${requestId}]:`);
+      console.log(`❌ Full result object:`, JSON.stringify(result, null, 2));
       throw new Error('No response from Gemini API');
     }
 
-    console.log('Generated text length:', generatedText.length);
-    console.log('Generated text preview:', generatedText.substring(0, 200) + '...');
+    console.log(`✅ Generated text extracted [${requestId}]:`);
+    console.log(`  📏 Length: ${generatedText.length} chars`);
+    console.log(`  📝 Preview: ${generatedText.substring(0, 300)}...`);
+    console.log(`  🔚 Ending: ...${generatedText.substring(generatedText.length - 100)}`);
 
     // Parse the JSON response to extract ingredients
     let ingredients = [];
@@ -270,18 +319,27 @@ export default async function handler(req, res) {
       console.error('Failed to log to Supabase:', logError);
     }
 
-    console.log('Final response:', {
-      success: true,
-      ingredientsCount: ingredients.length,
-      responseTime: responseTime,
-      ingredients: ingredients.slice(0, 3) // Log first 3 ingredients
-    });
+    console.log(`\n🎉 FINAL RESPONSE [${requestId}]`);
+    console.log(`✅ Success: true`);
+    console.log(`🥕 Ingredients found: ${ingredients.length}`);
+    console.log(`⏱️  Total processing time: ${responseTime}ms`);
+    console.log(`📋 Sample ingredients:`, ingredients.slice(0, 3));
+    console.log(`📊 All ingredients:`, ingredients.map(i => `${i.name} (${i.quantity} ${i.unit})`));
 
-    return res.status(200).json({
+    const finalResponse = {
       success: true,
       ingredients: ingredients,
-      responseTime: responseTime
+      responseTime: responseTime,
+      requestId: requestId,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log(`📤 Sending response [${requestId}]:`, {
+      statusCode: 200,
+      responseSize: JSON.stringify(finalResponse).length
     });
+
+    return res.status(200).json(finalResponse);
 
   } catch (error) {
     const responseTime = Date.now() - startTime;
