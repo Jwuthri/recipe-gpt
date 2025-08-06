@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
-import '../../domain/entities/ingredient.dart';
 import '../../core/constants/app_constants.dart';
-import '../themes/app_theme.dart';
+import '../../data/models/chat_message_model.dart';
+import '../../domain/entities/ingredient.dart';
 import '../blocs/chat/chat_cubit.dart';
 import '../blocs/chat/chat_state.dart';
-import '../widgets/gradient_container.dart';
-import '../widgets/loading_overlay.dart';
 import '../routes/app_router.dart';
-import '../../data/models/chat_message_model.dart';
+import '../widgets/gradient_container.dart';
 
 /// Screen for AI chat conversations
 class ChatScreen extends StatefulWidget {

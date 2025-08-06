@@ -1,5 +1,4 @@
 import '../entities/ingredient.dart';
-import '../entities/recipe.dart';
 
 /// Repository interface for AI operations
 abstract class AIRepository {

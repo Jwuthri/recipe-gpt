@@ -2,17 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
-import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 
 import '../../config/app_config.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/errors/network_exceptions.dart';
 import '../../core/network/network_client.dart';
-import '../models/ingredient_model.dart';
-import '../models/recipe_model.dart';
-import '../models/chat_message_model.dart';
 import '../../domain/entities/ingredient.dart';
+import '../models/chat_message_model.dart';
+import '../models/ingredient_model.dart';
 
 /// Abstract interface for AI remote data source
 abstract class AIRemoteDataSource {
@@ -100,6 +98,7 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
   }
 
   /// Generate recipe with streaming
+  @override
   Stream<String> generateRecipeStream({
     required List<Map<String, String>> ingredients,
     required String styleId,
@@ -128,6 +127,7 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
   }
 
   /// Generates chat response with streaming support
+  @override
   Stream<String> generateChatResponseStream({
     required String prompt,
     List<ChatMessageModel>? conversationHistory,
@@ -178,63 +178,54 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
   }) async {
     try {
       if (AppConstants.useBackend) {
-        print('🚀 Using backend for image analysis');
-        print('Backend URL: ${AppConstants.backendUrl}');
-        
         // Convert image files to base64 for backend analysis
         final List<String> imageBase64List = [];
         
         for (final imagePath in imagePaths) {
-          print('🔍 Processing image path: $imagePath');
-          
-          final File imageFile = File(imagePath);
-          final bool exists = await imageFile.exists();
-          
-          print('📁 File exists: $exists');
+          final imageFile = File(imagePath);
+          final exists = await imageFile.exists();
           
           if (exists) {
             try {
-              List<int> imageBytes = await imageFile.readAsBytes();
-              print('📊 Original image bytes length: ${imageBytes.length}');
+              Uint8List imageBytes = await imageFile.readAsBytes();
               
               if (imageBytes.isEmpty) {
-                print('❌ Image file is empty: ${imagePath}');
                 continue;
               }
               
-              // Compress image if it's too large (>1MB for Vercel compatibility)
-              if (imageBytes.length > 1024 * 1024) {
-                print('🗜️ Image too large, compressing...');
-                imageBytes = await _compressImage(imageBytes);
-                print('📉 Compressed image bytes length: ${imageBytes.length}');
+              // Compress image if it's too large (>500KB for Vercel compatibility)
+              if (imageBytes.length > 500 * 1024) {
+                imageBytes = Uint8List.fromList(await _compressImage(imageBytes));
+                
+                // If still too large after compression, compress more aggressively
+                if (imageBytes.length > 800 * 1024) {
+                  imageBytes = Uint8List.fromList(await _compressImageMore(imageBytes));
+                }
               }
               
-              final String base64Image = base64Encode(imageBytes);
-              print('📝 Base64 conversion result: originalPath=$imagePath, bytesLength=${imageBytes.length}, base64Length=${base64Image.length}');
+              final base64Image = base64Encode(imageBytes);
               
-              // Final check - if still too large after compression, skip (3MB limit for Vercel)
-              if (base64Image.length > 3 * 1024 * 1024) {
-                print('❌ Image still too large after compression, skipping');
+              // Final check - STRICT limit for Vercel (2MB for base64)
+              if (base64Image.length > 2 * 1024 * 1024) {
+                continue;
+              }
+              
+              // Check total payload size so far
+              final currentPayloadSize = jsonEncode({'images': [...imageBase64List, base64Image]}).length;
+              if (currentPayloadSize > 3.5 * 1024 * 1024) { // 3.5MB total limit
                 continue;
               }
               
               imageBase64List.add(base64Image);
-              print('✅ Successfully added image to base64 list');
             } catch (e) {
-              print('❌ Error reading image file: $e');
+              // Skip files with read errors
             }
-          } else {
-            print('❌ Image file not found: ${imagePath}');
           }
         }
         
         if (imageBase64List.isEmpty) {
           throw Exception('No valid images found');
         }
-
-        print('📤 Calling backend with ${imageBase64List.length} images');
-        print('🔧 DEBUG: imageBase64List.isEmpty = ${imageBase64List.isEmpty}');
-        print('🔧 DEBUG: First image preview = ${imageBase64List.isNotEmpty ? imageBase64List[0].substring(0, 50) : "NO IMAGES"}');
         
         // Call backend endpoint for image analysis
         final response = await _networkClient.post(
@@ -243,8 +234,6 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
             'images': imageBase64List,
           },
         );
-        
-        print('✅ Backend response received: ${response.keys}');
         
         // Response is already a Map<String, dynamic>
         if (response['success'] == true) {
@@ -337,9 +326,7 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         throw Exception('Gemini API key not configured: $e');
       }
 
-      // Debug: Print request structure (only in debug mode)
-      print('Making Gemini API request with ${imageParts.length} images');
-      print('Request structure: ${requestBody.keys}');
+      // Make direct call to Gemini Vision API with correct endpoint
       
       // Make direct call to Gemini Vision API with correct endpoint
       final response = await _networkClient.postRaw(
@@ -419,10 +406,9 @@ class AIRemoteDataSourceImpl implements AIRemoteDataSource {
         )).toList();
       }
 
-      return ingredients.isNotEmpty ? ingredients : [Ingredient(name: 'No ingredients detected', quantity: '0', unit: 'none')];
+      return ingredients.isNotEmpty ? ingredients : [const Ingredient(name: 'No ingredients detected', quantity: '0', unit: 'none')];
       
     } catch (e) {
-      print('Error in direct Gemini image analysis: $e');
       throw createNetworkException(message: 'Failed to analyze images: $e');
     }
   }
@@ -696,33 +682,59 @@ ${ingredients.map((ing) => '- ${ing['quantity']} ${ing['unit']} ${ing['name']}')
     return styleIcons[styleId] ?? '🍳';
   }
 
-  /// Compresses image data to reduce size for API calls
+  /// Compresses image data to reduce size for API calls using JPEG compression
   Future<List<int>> _compressImage(List<int> imageBytes) async {
     try {
-      // Decode the image
-      final ui.Codec codec = await ui.instantiateImageCodec(
-        Uint8List.fromList(imageBytes),
-        targetWidth: 1024, // Resize to max 1024px width
-        targetHeight: 1024, // Resize to max 1024px height
-      );
-      final ui.FrameInfo frameInfo = await codec.getNextFrame();
-      final ui.Image image = frameInfo.image;
-
-      // Convert to bytes with compression
-      final ByteData? byteData = await image.toByteData(
-        format: ui.ImageByteFormat.png,
-      );
+      // Decode the image using the image package
+      img.Image? image = img.decodeImage(Uint8List.fromList(imageBytes));
       
-      image.dispose();
-      codec.dispose();
-      
-      if (byteData == null) {
-        throw Exception('Failed to compress image');
+      if (image == null) {
+        print('❌ Failed to decode image');
+        return imageBytes;
       }
       
-      return byteData.buffer.asUint8List();
+      // Resize to max 1024px while maintaining aspect ratio
+      if (image.width > 1024 || image.height > 1024) {
+        image = img.copyResize(image, 
+          width: image.width > image.height ? 1024 : null,
+          height: image.height > image.width ? 1024 : null,
+        );
+      }
+      
+      // Encode as JPEG with quality 80 (good compression with decent quality)
+      final compressedBytes = img.encodeJpg(image, quality: 80);
+
+      
+      return compressedBytes;
     } catch (e) {
-      print('❌ Image compression failed: $e');
+      // Return original if compression fails
+      return imageBytes;
+    }
+  }
+
+  /// More aggressive compression for really large images
+  Future<List<int>> _compressImageMore(List<int> imageBytes) async {
+    try {
+      // Decode the image using the image package
+      img.Image? image = img.decodeImage(Uint8List.fromList(imageBytes));
+      
+      if (image == null) {
+        return imageBytes;
+      }
+      
+      // Resize to max 512px while maintaining aspect ratio (more aggressive)
+      if (image.width > 512 || image.height > 512) {
+        image = img.copyResize(image, 
+          width: image.width > image.height ? 512 : null,
+          height: image.height > image.width ? 512 : null,
+        );
+      }
+      
+      // Encode as JPEG with quality 60 (more aggressive compression)
+      final compressedBytes = img.encodeJpg(image, quality: 60);
+      
+      return compressedBytes;
+    } catch (e) {
       // Return original if compression fails
       return imageBytes;
     }
